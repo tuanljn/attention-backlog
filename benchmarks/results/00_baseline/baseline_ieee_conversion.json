@@ -1,0 +1,523 @@
+{
+  "env": {
+    "python": "3.13.13",
+    "platform": "Linux-6.8.0-111-generic-x86_64-with-glibc2.35",
+    "jax": "0.9.0",
+    "jax_devices": [
+      "cuda:0",
+      "cuda:1"
+    ],
+    "flax": "0.12.3",
+    "pypowsybl": "1.15.0"
+  },
+  "config": {
+    "ieee_sizes": [
+      9,
+      14,
+      30,
+      57,
+      118,
+      300
+    ],
+    "v_mag_range_pu": [
+      0.5,
+      1.6
+    ],
+    "model": "TinyRecurrentEquivariantGNN",
+    "model_seed": 0
+  },
+  "results": [
+    {
+      "name": "ieee9",
+      "n_addresses": 9,
+      "hyper_edge_set_counts": {
+        "batteries": 0,
+        "buses": 9,
+        "dangling_lines": 0,
+        "generators": 3,
+        "hvdc_lines": 0,
+        "lcc_converter_stations": 0,
+        "lines": 6,
+        "loads": 3,
+        "shunts": 0,
+        "static_var_compensators": 0,
+        "vsc_converter_stations": 0
+      },
+      "conversion_time_ms": 2444.017748814076,
+      "loadflow_time_ms": 1260.2776088751853,
+      "input_features_finite": true,
+      "output_features_finite": true,
+      "v_mag_min": 0.9956308603286743,
+      "v_mag_max": 1.0399999618530273,
+      "v_mag_in_range": true,
+      "n_non_finite_input_cells": 0,
+      "n_non_finite_output_cells": 0,
+      "tiny_forward_time_ms": 12679.876043926924,
+      "tiny_forward_output_shapes": {
+        "batteries": [
+          1,
+          0,
+          3
+        ],
+        "buses": [
+          1,
+          9,
+          1
+        ],
+        "dangling_lines": [
+          1,
+          0,
+          3
+        ],
+        "generators": [
+          1,
+          3,
+          3
+        ],
+        "lcc_converter_stations": [
+          1,
+          0,
+          3
+        ],
+        "lines": [
+          1,
+          6,
+          6
+        ],
+        "loads": [
+          1,
+          3,
+          3
+        ],
+        "shunts": [
+          1,
+          0,
+          3
+        ],
+        "static_var_compensators": [
+          1,
+          0,
+          3
+        ],
+        "vsc_converter_stations": [
+          1,
+          0,
+          3
+        ]
+      },
+      "tiny_forward_finite": true,
+      "notes": "",
+      "error": ""
+    },
+    {
+      "name": "ieee14",
+      "n_addresses": 14,
+      "hyper_edge_set_counts": {
+        "batteries": 0,
+        "buses": 14,
+        "dangling_lines": 0,
+        "generators": 5,
+        "hvdc_lines": 0,
+        "lcc_converter_stations": 0,
+        "lines": 17,
+        "loads": 11,
+        "shunts": 1,
+        "static_var_compensators": 0,
+        "vsc_converter_stations": 0
+      },
+      "conversion_time_ms": 592.9698699619621,
+      "loadflow_time_ms": 29.275655979290605,
+      "input_features_finite": true,
+      "output_features_finite": true,
+      "v_mag_min": 1.0099999904632568,
+      "v_mag_max": 1.090000033378601,
+      "v_mag_in_range": true,
+      "n_non_finite_input_cells": 0,
+      "n_non_finite_output_cells": 0,
+      "tiny_forward_time_ms": 11324.592103017494,
+      "tiny_forward_output_shapes": {
+        "batteries": [
+          1,
+          0,
+          3
+        ],
+        "buses": [
+          1,
+          14,
+          1
+        ],
+        "dangling_lines": [
+          1,
+          0,
+          3
+        ],
+        "generators": [
+          1,
+          5,
+          3
+        ],
+        "lcc_converter_stations": [
+          1,
+          0,
+          3
+        ],
+        "lines": [
+          1,
+          17,
+          6
+        ],
+        "loads": [
+          1,
+          11,
+          3
+        ],
+        "shunts": [
+          1,
+          1,
+          3
+        ],
+        "static_var_compensators": [
+          1,
+          0,
+          3
+        ],
+        "vsc_converter_stations": [
+          1,
+          0,
+          3
+        ]
+      },
+      "tiny_forward_finite": true,
+      "notes": "",
+      "error": ""
+    },
+    {
+      "name": "ieee30",
+      "n_addresses": 30,
+      "hyper_edge_set_counts": {
+        "batteries": 0,
+        "buses": 30,
+        "dangling_lines": 0,
+        "generators": 6,
+        "hvdc_lines": 0,
+        "lcc_converter_stations": 0,
+        "lines": 37,
+        "loads": 21,
+        "shunts": 2,
+        "static_var_compensators": 0,
+        "vsc_converter_stations": 0
+      },
+      "conversion_time_ms": 750.9723950643092,
+      "loadflow_time_ms": 47.535483026877046,
+      "input_features_finite": true,
+      "output_features_finite": true,
+      "v_mag_min": 0.9919363856315613,
+      "v_mag_max": 1.0820000171661377,
+      "v_mag_in_range": true,
+      "n_non_finite_input_cells": 0,
+      "n_non_finite_output_cells": 0,
+      "tiny_forward_time_ms": 11756.195476045832,
+      "tiny_forward_output_shapes": {
+        "batteries": [
+          1,
+          0,
+          3
+        ],
+        "buses": [
+          1,
+          30,
+          1
+        ],
+        "dangling_lines": [
+          1,
+          0,
+          3
+        ],
+        "generators": [
+          1,
+          6,
+          3
+        ],
+        "lcc_converter_stations": [
+          1,
+          0,
+          3
+        ],
+        "lines": [
+          1,
+          37,
+          6
+        ],
+        "loads": [
+          1,
+          21,
+          3
+        ],
+        "shunts": [
+          1,
+          2,
+          3
+        ],
+        "static_var_compensators": [
+          1,
+          0,
+          3
+        ],
+        "vsc_converter_stations": [
+          1,
+          0,
+          3
+        ]
+      },
+      "tiny_forward_finite": true,
+      "notes": "",
+      "error": ""
+    },
+    {
+      "name": "ieee57",
+      "n_addresses": 57,
+      "hyper_edge_set_counts": {
+        "batteries": 0,
+        "buses": 57,
+        "dangling_lines": 0,
+        "generators": 7,
+        "hvdc_lines": 0,
+        "lcc_converter_stations": 0,
+        "lines": 63,
+        "loads": 42,
+        "shunts": 3,
+        "static_var_compensators": 0,
+        "vsc_converter_stations": 0
+      },
+      "conversion_time_ms": 651.7190160229802,
+      "loadflow_time_ms": 60.03665621392429,
+      "input_features_finite": true,
+      "output_features_finite": true,
+      "v_mag_min": 0.9377347230911255,
+      "v_mag_max": 1.061588168144226,
+      "v_mag_in_range": true,
+      "n_non_finite_input_cells": 0,
+      "n_non_finite_output_cells": 0,
+      "tiny_forward_time_ms": 12845.120453974232,
+      "tiny_forward_output_shapes": {
+        "batteries": [
+          1,
+          0,
+          3
+        ],
+        "buses": [
+          1,
+          57,
+          1
+        ],
+        "dangling_lines": [
+          1,
+          0,
+          3
+        ],
+        "generators": [
+          1,
+          7,
+          3
+        ],
+        "lcc_converter_stations": [
+          1,
+          0,
+          3
+        ],
+        "lines": [
+          1,
+          63,
+          6
+        ],
+        "loads": [
+          1,
+          42,
+          3
+        ],
+        "shunts": [
+          1,
+          3,
+          3
+        ],
+        "static_var_compensators": [
+          1,
+          0,
+          3
+        ],
+        "vsc_converter_stations": [
+          1,
+          0,
+          3
+        ]
+      },
+      "tiny_forward_finite": true,
+      "notes": "",
+      "error": ""
+    },
+    {
+      "name": "ieee118",
+      "n_addresses": 118,
+      "hyper_edge_set_counts": {
+        "batteries": 0,
+        "buses": 118,
+        "dangling_lines": 0,
+        "generators": 54,
+        "hvdc_lines": 0,
+        "lcc_converter_stations": 0,
+        "lines": 177,
+        "loads": 91,
+        "shunts": 14,
+        "static_var_compensators": 0,
+        "vsc_converter_stations": 0
+      },
+      "conversion_time_ms": 1205.425166990608,
+      "loadflow_time_ms": 75.88183996267617,
+      "input_features_finite": true,
+      "output_features_finite": true,
+      "v_mag_min": 0.9430000185966492,
+      "v_mag_max": 1.0499999523162842,
+      "v_mag_in_range": true,
+      "n_non_finite_input_cells": 0,
+      "n_non_finite_output_cells": 0,
+      "tiny_forward_time_ms": 12207.970995921642,
+      "tiny_forward_output_shapes": {
+        "batteries": [
+          1,
+          0,
+          3
+        ],
+        "buses": [
+          1,
+          118,
+          1
+        ],
+        "dangling_lines": [
+          1,
+          0,
+          3
+        ],
+        "generators": [
+          1,
+          54,
+          3
+        ],
+        "lcc_converter_stations": [
+          1,
+          0,
+          3
+        ],
+        "lines": [
+          1,
+          177,
+          6
+        ],
+        "loads": [
+          1,
+          91,
+          3
+        ],
+        "shunts": [
+          1,
+          14,
+          3
+        ],
+        "static_var_compensators": [
+          1,
+          0,
+          3
+        ],
+        "vsc_converter_stations": [
+          1,
+          0,
+          3
+        ]
+      },
+      "tiny_forward_finite": true,
+      "notes": "",
+      "error": ""
+    },
+    {
+      "name": "ieee300",
+      "n_addresses": 300,
+      "hyper_edge_set_counts": {
+        "batteries": 0,
+        "buses": 300,
+        "dangling_lines": 0,
+        "generators": 69,
+        "hvdc_lines": 0,
+        "lcc_converter_stations": 0,
+        "lines": 304,
+        "loads": 198,
+        "shunts": 14,
+        "static_var_compensators": 0,
+        "vsc_converter_stations": 0
+      },
+      "conversion_time_ms": 651.7643090337515,
+      "loadflow_time_ms": 108.97526587359607,
+      "input_features_finite": true,
+      "output_features_finite": true,
+      "v_mag_min": 0.9290000200271606,
+      "v_mag_max": 1.0735000371932983,
+      "v_mag_in_range": true,
+      "n_non_finite_input_cells": 0,
+      "n_non_finite_output_cells": 0,
+      "tiny_forward_time_ms": 11021.470183040947,
+      "tiny_forward_output_shapes": {
+        "batteries": [
+          1,
+          0,
+          3
+        ],
+        "buses": [
+          1,
+          300,
+          1
+        ],
+        "dangling_lines": [
+          1,
+          0,
+          3
+        ],
+        "generators": [
+          1,
+          69,
+          3
+        ],
+        "lcc_converter_stations": [
+          1,
+          0,
+          3
+        ],
+        "lines": [
+          1,
+          304,
+          6
+        ],
+        "loads": [
+          1,
+          198,
+          3
+        ],
+        "shunts": [
+          1,
+          14,
+          3
+        ],
+        "static_var_compensators": [
+          1,
+          0,
+          3
+        ],
+        "vsc_converter_stations": [
+          1,
+          0,
+          3
+        ]
+      },
+      "tiny_forward_finite": true,
+      "notes": "",
+      "error": ""
+    }
+  ]
+}

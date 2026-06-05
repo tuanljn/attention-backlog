@@ -1,0 +1,17 @@
+{
+  "seed": 64,
+  "network": "ieee14",
+  "in_array_size": 4,
+  "out_size": 4,
+  "perturbation_scale": 0.1,
+  "output_shape": [
+    14,
+    4
+  ],
+  "output_sha256": "21647f2761eedaa49535d110007cbb94110f7271c518feb8b4658043f3572833",
+  "jax_devices": [
+    "cuda:0",
+    "cuda:1"
+  ],
+  "context_source": "results/consistency_gatv2_context.pkl"
+}

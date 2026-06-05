@@ -1,0 +1,17 @@
+{
+  "seed": 64,
+  "network": "ieee14",
+  "in_array_size": 4,
+  "out_size": 4,
+  "perturbation_scale": 0.1,
+  "output_shape": [
+    14,
+    4
+  ],
+  "output_sha256": "6c2d2c1a0a58ec5476b243c0b46713284bf123aa4bceaf7b00bae011eec45c99",
+  "jax_devices": [
+    "cuda:0",
+    "cuda:1"
+  ],
+  "context_source": "results/consistency_global_aggregation_context.pkl"
+}

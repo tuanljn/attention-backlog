@@ -1,0 +1,1846 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Rapport d'implémentation des mécanismes d'attention dans EnerGNN</title>
+<script>window.MathJax = { tex: { inlineMath: [["$","$"], ["\\(","\\)"]], displayMath: [["$$","$$"], ["\\[","\\]"]] } };</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "default", flowchart: { htmlLabels: true, useMaxWidth: true } });
+</script>
+<style>
+  :root {
+    --bg: #fafafa;
+    --fg: #1a1a1a;
+    --muted: #555;
+    --accent: #1f6feb;
+    --warn: #b08000;
+    --code-bg: #f0f0f0;
+    --border: #ddd;
+  }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    max-width: 980px;
+    margin: 2em auto;
+    padding: 0 1.5em;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+  }
+  h1 { border-bottom: 2px solid var(--accent); padding-bottom: 0.3em; }
+  h2 { color: var(--accent); margin-top: 2em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+  h3 { color: #444; margin-top: 1.6em; }
+  h4 { color: #555; margin-top: 1.2em; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.92em; }
+  pre {
+    background: var(--code-bg);
+    padding: 0.8em 1em;
+    border-radius: 5px;
+    overflow-x: auto;
+    border-left: 3px solid var(--accent);
+    font-size: 0.88em;
+  }
+  pre code { background: none; padding: 0; }
+  table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: 100%;
+    font-size: 0.94em;
+  }
+  th, td { border: 1px solid var(--border); padding: 0.5em 0.8em; text-align: left; }
+  th { background: #ececec; font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .note {
+    background: #fff8e0;
+    border-left: 4px solid var(--warn);
+    padding: 0.8em 1em;
+    border-radius: 4px;
+    margin: 1em 0;
+  }
+  .note b { color: var(--warn); }
+  .info {
+    background: #e7f0ff;
+    border-left: 4px solid var(--accent);
+    padding: 0.8em 1em;
+    border-radius: 4px;
+    margin: 1em 0;
+  }
+  .toc {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1em 1.5em;
+    margin: 1.5em 0;
+  }
+  .toc ol { margin: 0.3em 0 0; padding-left: 1.5em; }
+  .toc li { margin: 0.2em 0; }
+  table.glossary { width: 100%; border-collapse: collapse; margin: 1em 0; }
+  table.glossary th { background: #f0f3f7; text-align: left; padding: 0.5em 0.8em; border-bottom: 2px solid var(--border); font-weight: 600; }
+  table.glossary td { padding: 0.6em 0.8em; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.glossary tr:hover td { background: #f9fbfd; }
+
+  .chart-wrap { background: #fff; padding: 1em; border: 1px solid var(--border); border-radius: 6px; margin: 1em 0; }
+  .small { font-size: 0.86em; color: var(--muted); }
+  hr { border: none; border-top: 1px dashed var(--border); margin: 2.5em 0; }
+  .anchor { color: var(--muted); text-decoration: none; opacity: 0; margin-left: 0.4em; font-size: 0.7em; }
+  h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity: 1; }
+</style>
+</head>
+<body>
+
+<h1>Rapport d'implémentation des mécanismes d'attention dans EnerGNN</h1>
+<h2 id="sec-resume">Résumé exécutif</h2>
+
+<p>Ce rapport décrit l'implémentation des cinq Items du backlog d'attention pour EnerGNN. Quatre message functions — GATv2 (attention softmax canonique, Brody et al. 2022), GlobalAggregation (couche de contexte global par adresse), MultiHeadQKV (attention bilinéaire Q/K/V avec mise à l'échelle en $1/\sqrt{d_{QK}}$), Performer (attention linéaire sans softmax, single-head v1) — et un coupler à état virtuel partagé (VirtualAddressRecurrentCoupler). Les quatre message functions se raccordent au <code>RecurrentCoupler</code> existant sans modification de la signature ABC <code>MessagePassingFunction.__call__</code>. Toutes les Approches partagent le même pre-cache loader pour le banc IEEE supervisé AC LF.</p>
+
+<p>Chaque approche a été validée à travers les sept portes actives du pipeline : tests unitaires, contrôles statiques (<code>black</code>, <code>flake8</code>, <code>mypy</code>), convergence sur le jeu LinearSystem, intégration dans le <code>RecurrentCoupler</code>, entraînement supervisé AC LF sur IEEE-9 et IEEE-14, chronométrage forward et forward+backward sur IEEE-118 / IEEE-300, et empreinte SHA-256 bit-à-bit du forward. Au total, 70 tests unitaires (16 pour l'Approche 1, 13 pour l'Approche 2, 15 pour l'Approche 3, 15 pour l'Approche 4, 11 pour l'Approche 5) et 8 cas d'intégration sont verts sur le serveur GPU de La Javaness (JAX 0.9.0, CUDA), et chaque approche produit une empreinte de sortie reproduite à l'identique entre deux exécutions successives.</p>
+
+<p>Les Gate 6 (coût forward) et Gate 7 (consistency SHA-256) de l'Approche 5 sont différées en commit de suivi sur la branche <code>virtual-address-coupler</code>. La Gate 8 (point figé du réseau français) reste différée jusqu'à livraison du snapshot de production ; le rejeu rétroactif sur les cinq Approches déjà entraînées ne nécessite pas de ré-entraînement.</p>
+
+<h2 id="sec-glossaire">Glossaire</h2>
+
+<table class="glossary">
+  <thead>
+    <tr><th style="width: 14em;">Terme</th><th>Définition</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>Item</b></td>
+      <td>Élément numéroté du backlog d'attention (5 items au total, sections 3.1 à 3.5 du backlog). Item 1 = GATv2, Item 2 = GlobalAggregation, Item 3 = MultiHeadQKV, Item 4 = Performer, Item 5 = VirtualAddressRecurrentCoupler.</td>
+    </tr>
+    <tr>
+      <td><b>Approche</b></td>
+      <td>Implémentation et validation d'un Item. Approche 1 livre Item 1, Approche 2 livre Item 2, Approche 3 livre Item 3, Approche 4 livre Item 4, Approche 5 livre Item 5. Les chapitres 11, 12, 13, 14, 15 ferment respectivement Approches 1, 2, 3, 4, 5.</td>
+    </tr>
+    <tr>
+      <td><b>Gate</b></td>
+      <td>Porte de vérification. Le pipeline complet a 8 portes ; 7 sont actives, 1 est différée. Ordre : Gate 1 Unit, Gate 2 Static, Gate 3 LinearSystem, Gate 4 Integration, Gate 5 IEEE supervisé, Gate 6 Perf, Gate 7 Consistency, Gate 8 snapshot de production (différée).</td>
+    </tr>
+    <tr>
+      <td><b>H2MG</b></td>
+      <td>Hyper Heterogeneous Multi Graph : structure de graphe formalisée dans EnerGNN (publication amont : <code>https://github.com/energnn/energnn</code>) pour représenter les réseaux électriques. Voir chapitre 3 pour le détail.</td>
+    </tr>
+    <tr>
+      <td><b>LocalSum</b></td>
+      <td>Message function baseline de référence, déjà présente dans EnerGNN avant le travail d'attention. Aggrégation par classe-port, somme sur les sources, MLP outer par classe. Toutes les approches d'attention sont comparées contre LocalSum.</td>
+    </tr>
+    <tr>
+      <td><b>best-eval</b></td>
+      <td>Minimum de la perte d'évaluation observée pendant l'entraînement (<code>min(epoch_eval_curve)</code>). Comparaison plus juste que <code>final-eval</code> quand l'entraînement peut overfit.</td>
+    </tr>
+    <tr>
+      <td><b>n_params</b></td>
+      <td>Nombre de paramètres entraînables du modèle complet (Normalizer + Encoder + Coupler + Decoder).</td>
+    </tr>
+    <tr>
+      <td><b>Tiny / Small</b></td>
+      <td>Deux profils de modèle pré-définis. Tiny : <code>latent_dim=4</code>, <code>hidden=[]</code>, <code>n_steps=5</code>. Small : <code>latent_dim=8</code>, <code>hidden=[16]</code>, <code>n_steps=10</code>. Mêmes hyper-paramètres pour toutes les variantes (4 message functions + coupler VAR), ce qui isole l'effet du mécanisme.</td>
+    </tr>
+    <tr>
+      <td><b>Empreinte SHA-256 du forward</b></td>
+      <td>SHA-256 est une fonction de hachage cryptographique standard (publiée par le NIST en 2001) qui transforme un tableau de bytes de taille arbitraire en une signature hexadécimale de 64 caractères (256 bits). La propriété utilisée ici est le <b>déterminisme</b> : deux exécutions produisant exactement les mêmes bytes en sortie produisent exactement la même signature. On l'applique au tenseur de sortie d'un forward pass sur un contexte IEEE-14 figé (seed identique, contexte rechargé depuis un pickle, message function identique). Si deux exécutions successives donnent la même empreinte au bit près, le forward est reproductible. C'est le test de Gate 7. Les empreintes documentées dans ce rapport ont été obtenues sur le serveur GPU de La Javaness avec deux CUDA V100 visibles ; une topologie GPU différente (nombre ou modèle de GPU) peut produire des empreintes différentes pour GATv2, sans pour autant indiquer un bug — il s'agit d'une propriété connue de l'ordonnancement multi-device de JAX.</td>
+    </tr>
+    <tr>
+      <td><b>Pre-cache loader</b></td>
+      <td><code>ACLoadFlowProblemLoader</code> qui pré-génère <code>dataset_size</code> instances une fois à l'initialisation, puis cache les paires <code>(context, oracle)</code>. Évite tout drift float du solver pypowsybl entre runs.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="toc">
+<b>Sommaire</b>
+<ol>
+  <li><a href="#sec-overview">Vue d'ensemble : ce qu'est le baseline et pourquoi il est nécessaire</a></li>
+  <li><a href="#sec-problem">Problème LinearSystem : nature physique et formulation</a></li>
+  <li><a href="#sec-h2mg">Représentation H2MG : graphes de contexte et de décision</a></li>
+  <li><a href="#sec-dataset">Génération du jeu de données : algorithme <code>_generate_sparse_linear_system</code></a></li>
+  <li><a href="#sec-model">Architecture du modèle : Normalizer → Encoder → Coupler → Decoder</a></li>
+  <li><a href="#sec-loss">Fonction objectif : <code>get_score</code> et <code>get_gradient</code></a></li>
+  <li><a href="#sec-trainer">Pipeline d'entraînement : <code>Trainer</code> et Optax</a></li>
+  <li><a href="#sec-results">Résultats LinearSystem : tableaux et courbes de perte</a></li>
+  <li><a href="#sec-ieee">Conversion et forward sur les six réseaux IEEE</a></li>
+  <li><a href="#sec-ieee-supervised">Baseline IEEE supervisé : <code>ACLoadFlowProblem</code></a></li>
+  <li><a href="#sec-approche1">Approche 1 — GATv2 (Item 1 du backlog d'attention)</a></li>
+  <li><a href="#sec-approche2">Approche 2 — GlobalAggregation (Item 2 du backlog d'attention)</a></li>
+  <li><a href="#sec-approche3">Approche 3 — MultiHeadQKV (Item 3 du backlog d'attention)</a></li>
+  <li><a href="#sec-approche4">Approche 4 — Performer (Item 4 du backlog d'attention)</a></li>
+  <li><a href="#sec-approche5">Approche 5 — VirtualAddressRecurrentCoupler (Item 5 du backlog d'attention)</a></li>
+  <li><a href="#sec-conclusion">Conclusion et perspectives</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="sec-overview">1. Vue d'ensemble : ce qu'est le baseline et pourquoi il est nécessaire<a href="#sec-overview" class="anchor">#</a></h2>
+
+<h3>1.0. Synthèse visuelle des Approches 1-5</h3>
+
+<p>La carte ci-dessous résume l'ensemble du rapport en un seul diagramme : chaque carte expose, pour une Approche (1 à 5), l'idée, l'hypothèse de départ, le résultat numérique mesuré et son explication. Les couleurs indiquent l'appartenance au Groupe A (mécanismes qui exploitent la topologie per-(classe, port), <code>LocalSum / GATv2 / MultiHeadQKV</code>) ou au Groupe B (mécanismes qui ignorent la topologie, <code>GlobalAggregation / Performer</code>).</p>
+
+<div class="mermaid">
+flowchart TB
+    classDef ref fill:#bbdefb,stroke:#1565c0,color:#0d47a1
+    classDef topo fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef agno fill:#ffcdd2,stroke:#c62828,color:#b71c1c
+
+    REF["<b>LocalSum (référence Donon)</b><br/>Aggrégation per-(classe, port)<br/>n=15863 — ieee9 best-eval = 5,08e-03"]:::ref
+
+    A1["<b>Approche 1 — GATv2</b> (Groupe A, topology)<br/>Idée. Softmax sélectif sur voisins<br/>Hypothèse. Sélection ciblée améliore l'eval<br/>Résultat. ieee9 = 5,84e-03 vs LocalSum 5,08e-03 (+15%, CI95 overlap)<br/>Explication. Degré 2-4, softmax sans effet net<br/>Observation. Reste dans la dispersion de LocalSum"]:::topo
+
+    A2["<b>Approche 2 — GlobalAggregation</b> (Groupe B, sans topology)<br/>Idée. Moyenne globale sur les adresses<br/>Hypothèse. Coût réduit suffit pour la tâche<br/>Résultat. ieee9 = 2,66e-02 — ×5,2 vs LocalSum<br/>Explication. Perte de la structure des hyper-arêtes<br/>Observation. Bande disjointe de LocalSum"]:::agno
+
+    A3["<b>Approche 3 — MultiHeadQKV</b> (Groupe A, topology)<br/>Idée. Q/K/V bilinéaire sur voisins per-edge<br/>Hypothèse. Projection paramétrée améliore l'eval<br/>Résultat. ieee9 = 8,24e-03 — couvre LocalSum<br/>Explication. Topology suffit déjà, Q/K/V apport limité<br/>Observation. Reste dans la dispersion de LocalSum"]:::topo
+
+    A4["<b>Approche 4 — Performer</b> (Groupe B, sans topology)<br/>Idée. Attention linéaire all-to-all, kernel-trick<br/>Hypothèse. Q par récepteur compense la perte topology<br/>Résultat. ieee9 = 2,88e-02 — ×5,7 vs LocalSum<br/>Explication. Q seul n'apporte pas le signal des hyper-arêtes<br/>Observation. Profil voisin de GlobalAggregation"]:::agno
+
+    A5["<b>Approche 5 — VAR+LocalSum</b> (coupler à état virtuel)<br/>Idée. État virtuel partagé en parallèle de l'état per-adresse<br/>Hypothèse. Canal de mémoire global complète LocalSum<br/>Résultat. ieee9 Small 6,28e-03, ieee14 Small 7,13e-03<br/>Explication. État virtuel redondant avec topology de LocalSum<br/>Observation. Couvre LocalSum seul, pas d'amélioration mesurable"]:::topo
+
+    REF --> A1
+    REF --> A2
+    REF --> A3
+    REF --> A4
+    REF --> A5
+</div>
+
+<h4>Compromis vitesse / précision — Approches 1-5 sur AC LF Small</h4>
+
+<p>Le diagramme ci-dessous positionne chaque Approche sur deux axes orthogonaux : le coût d'exécution (forward time relatif à LocalSum, axe horizontal) et la qualité d'évaluation (moyenne géométrique de la best-eval médiane sur ieee9 Small et ieee14 Small, axe vertical). Les deux axes sont en échelle logarithmique pour comparer des ordres de grandeur différents.</p>
+
+<p><b>Comment lire le diagramme</b>&nbsp;: la zone en bas à gauche concentre coût forward bas et best-eval bas. LocalSum y est par construction (référence). MultiHeadQKV s'y trouve avec une eval équivalente à coût ×2. GlobalAggregation et Performer se placent en haut à droite&nbsp;: forward réduit, best-eval ×5. GATv2 paye en coût et en eval. VAR+LocalSum reste à proximité de LocalSum.</p>
+
+<canvas id="pareto-scatter" style="max-width: 760px; max-height: 460px;"></canvas>
+
+<script>
+(function() {
+  const points = [
+    { mech: "LocalSum",          x: 1.00, y: 4.81e-3, params: 15863, group: "A",        note: "référence" },
+    { mech: "GATv2",             x: 1.98, y: 6.84e-3, params: 25289, group: "A",        note: "" },
+    { mech: "MultiHeadQKV",      x: 2.07, y: 4.78e-3, params: 25407, group: "A",        note: "" },
+    { mech: "GlobalAggregation", x: 0.09, y: 2.22e-2, params:  6879, group: "B",        note: "" },
+    { mech: "Performer",         x: 0.21, y: 2.41e-2, params:  7439, group: "B",        note: "" },
+    { mech: "VAR+LocalSum",      x: 1.10, y: 6.69e-3, params: 16063, group: "A-hybrid", note: "x estimé (Gate 6 différée)" },
+  ];
+  const colors = { "A": "#2e7d32", "B": "#c62828", "A-hybrid": "#f9a825" };
+  const radius = p => Math.max(6, Math.min(18, Math.sqrt(p.params / 100)));
+  const datasets = [
+    { label: "Groupe A — topology-aware (LocalSum, GATv2, MultiHeadQKV)",
+      data: points.filter(p => p.group === "A").map(p => ({ x: p.x, y: p.y, _p: p })),
+      backgroundColor: colors["A"] + "cc", borderColor: colors["A"],
+      pointRadius: ctx => radius(ctx.raw._p), pointHoverRadius: ctx => radius(ctx.raw._p) + 3,
+      pointStyle: "circle" },
+    { label: "Groupe B — topology-agnostic (GlobalAggregation, Performer)",
+      data: points.filter(p => p.group === "B").map(p => ({ x: p.x, y: p.y, _p: p })),
+      backgroundColor: colors["B"] + "cc", borderColor: colors["B"],
+      pointRadius: ctx => radius(ctx.raw._p), pointHoverRadius: ctx => radius(ctx.raw._p) + 3,
+      pointStyle: "rect" },
+    { label: "Hybride — VAR+LocalSum (coupler à état virtuel)",
+      data: points.filter(p => p.group === "A-hybrid").map(p => ({ x: p.x, y: p.y, _p: p })),
+      backgroundColor: colors["A-hybrid"] + "cc", borderColor: colors["A-hybrid"],
+      pointRadius: ctx => radius(ctx.raw._p), pointHoverRadius: ctx => radius(ctx.raw._p) + 3,
+      pointStyle: "triangle" },
+  ];
+
+  new Chart(document.getElementById("pareto-scatter"), {
+    type: "scatter",
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: {
+          type: "logarithmic",
+          title: { display: true, text: "Forward time relatif à LocalSum  (← rapide   |   lent →)", font: { size: 13 } },
+          min: 0.05, max: 5,
+          ticks: { callback: v => v.toFixed(2) + "×" }
+        },
+        y: {
+          type: "logarithmic",
+          title: { display: true, text: "Best-eval médiane ieee9+14 Small  (↓ meilleur)", font: { size: 13 } },
+          min: 3e-3, max: 5e-2,
+          ticks: { callback: v => v.toExponential(0) }
+        }
+      },
+      plugins: {
+        title: { display: true, text: "Position des 5 Approches dans le compromis vitesse / précision" },
+        legend: { position: "bottom", labels: { padding: 12, boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            label: c => {
+              const p = c.raw._p;
+              const parts = [
+                `${p.mech}`,
+                `forward ratio: ${p.x.toFixed(2)}× LocalSum`,
+                `best-eval (geom mean ieee9/14): ${p.y.toExponential(3)}`,
+                `n_params (Small): ${p.params}`,
+              ];
+              if (p.note) parts.push(`note: ${p.note}`);
+              return parts;
+            }
+          }
+        }
+      }
+    },
+    plugins: [{
+      id: "labels",
+      afterDatasetsDraw(chart) {
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.font = "11px -apple-system, system-ui, sans-serif";
+        ctx.fillStyle = "#1a1a1a";
+        chart.data.datasets.forEach((ds, di) => {
+          const meta = chart.getDatasetMeta(di);
+          meta.data.forEach((point, i) => {
+            const raw = ds.data[i]._p;
+            const r = Math.max(6, Math.min(18, Math.sqrt(raw.params / 100)));
+            const ox = (raw.mech.length > 10 ? -r - 4 : r + 6);
+            const oy = -r - 4;
+            ctx.textAlign = ox < 0 ? "right" : "left";
+            ctx.fillText(raw.mech, point.x + ox, point.y + oy);
+          });
+        });
+        ctx.restore();
+      }
+    }]
+  });
+})();
+</script>
+
+<p><b>Précisions de lecture</b>&nbsp;:</p>
+<ul>
+  <li><b>Axe horizontal</b>&nbsp;: ratio du forward time par rapport à LocalSum (référence à <code>1,00×</code>). Valeur sous <code>1,00×</code> signifie plus rapide que LocalSum, au-dessus signifie plus lent. Mesuré sur ieee118 et ieee300 (Gate 6). Pour l'Approche 5, la Gate 6 est différée et la position horizontale est une borne supérieure à <code>1,10×</code> (estimation prudente) basée sur le coût additionnel de <code>phi_virtual</code> et de la moyenne masquée (cf. chapitre 15).</li>
+  <li><b>Axe vertical</b>&nbsp;: moyenne géométrique de la best-eval médiane sur ieee9 Small et ieee14 Small. Valeur plus basse = meilleure précision.</li>
+  <li><b>Forme du marqueur</b>&nbsp;: cercle (Groupe A topology-aware), carré (Groupe B topology-agnostic), triangle (hybride VAR+LocalSum).</li>
+  <li><b>Taille du marqueur</b>&nbsp;: proportionnelle à la racine carrée du nombre de paramètres en configuration Small.</li>
+  <li>Le tableau détaillé des chiffres bruts (best-eval par seed, train wall-time, n_params) reste la source de vérité numérique&nbsp;; il est reporté dans les chapitres 11 à 15 et dans <code>BASELINES.md</code>.</li>
+</ul>
+
+
+<p>Trois mécanismes topology-aware (LocalSum, MultiHeadQKV, et l'hybride VAR+LocalSum) restent dans la même bande d'eval ; deux autres (GlobalAggregation et Performer) se situent un ordre de grandeur au-dessus en MSE. L'écart entre les deux groupes se reproduit dans la même direction sur 4 cellules sur 4 (ieee9 et ieee14, Tiny et Small), avec un rapport médian de l'ordre de ×4 à ×5 sur les configurations Small.</p>
+
+<hr>
+
+<h3>1.1. Données du substrat LinearSystem</h3>
+
+<p>Le substrat LinearSystem est un problème entièrement synthétique généré à l'intérieur du package <code>energnn</code> par la fonction <code>_generate_sparse_linear_system</code> (<code>energnn/problem/example/linear_system.py</code>). Il ne dépend pas de <code>pypowsybl</code> et ne représente aucun réseau physique. Son rôle est de fournir un substrat minimal sur lequel toute message function doit converger avant d'être testée sur les substrats IEEE plus exigeants.</p>
+
+<p>La génération d'un échantillon utilise la stratégie de <em>génération inverse</em> : la solution <code>θ</code> est tirée aléatoirement, puis le membre droit <code>P = B θ</code> est dérivé, ce qui garantit l'existence et la justesse de l'oracle.</p>
+
+<div class="mermaid">
+flowchart LR
+    classDef synth fill:#fff9c4,stroke:#f9a825,color:#e65100
+    classDef derived fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef gnn fill:#bbdefb,stroke:#1565c0,color:#0d47a1
+
+    THETA["θ ~ N(0, I)<br/>(paramètres tirés aléatoirement)"]:::synth
+    B["B sparse PSD aléatoire<br/>(matrice du système)"]:::synth
+    P["P = B · θ<br/>(membre droit dérivé)"]:::derived
+    H2MG["Conversion en H2MG<br/>(graphe d'hyper-arêtes)"]:::derived
+    GNN["GNN prédit θ̂<br/>à partir de (B, P, graphe)"]:::gnn
+
+    THETA --> P
+    B --> P
+    B --> H2MG
+    P --> H2MG
+    H2MG --> GNN
+</div>
+
+<p><b>Caractéristiques du substrat</b>&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Élément</th><th>Valeur</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Origine</td><td>Synthétique (généré à la volée par <code>energnn.problem.example</code>)</td></tr>
+    <tr><td>Topologie par échantillon</td><td>Aléatoire (matrice <code>B</code> sparse, structure différente à chaque tirage)</td></tr>
+    <tr><td><code>n_max</code> (paramètre)</td><td>3 — limite la taille des sous-blocs de <code>B</code></td></tr>
+    <tr><td><code>n_addr</code> par échantillon</td><td>4 adresses après conversion H2MG</td></tr>
+    <tr><td>Cible (oracle)</td><td>Exacte par construction (<code>P = B θ</code>)</td></tr>
+    <tr><td>Taille des jeux</td><td>64 train + 32 validation par seed</td></tr>
+    <tr><td>Reproductibilité</td><td>Contrôlée par <code>seed</code> ; même seed → même séquence d'échantillons</td></tr>
+  </tbody>
+</table>
+
+<p>Ce substrat est volontairement minimal&nbsp;: avec 4 adresses par graphe, la propagation d'information à travers un réseau d'attention est triviale. LinearSystem sert donc à vérifier le pipeline (le GNN converge sans NaN, le gradient se propage), pas à départager les mécanismes d'attention. La discrimination s'opère sur le substrat AC LF (section 1.2).</p>
+
+<h3>1.2. Données du substrat AC LF (IEEE-9 et IEEE-14)</h3>
+
+<p>Le substrat AC LF (<em>AC load-flow</em>) est <b>semi-synthétique</b>. La topologie et les paramètres physiques sont issus des cas tests académiques standards <code>IEEE-9</code> et <code>IEEE-14</code>, livrés en l'état par <code>pypowsybl</code>. Les loads de chaque échantillon sont en revanche obtenus par perturbation aléatoire des loads de référence&nbsp;: il ne s'agit donc pas de données de production. La validation sur snapshot point figé du réseau français est attendue à la Gate 8 (cf. chapitre Conclusion).</p>
+
+<p>La génération d'un échantillon suit cette boucle&nbsp;:</p>
+
+<div class="mermaid">
+flowchart LR
+    classDef fixed fill:#bbdefb,stroke:#1565c0,color:#0d47a1
+    classDef synth fill:#fff9c4,stroke:#f9a825,color:#e65100
+    classDef derived fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef gnn fill:#ffcdd2,stroke:#c62828,color:#b71c1c
+
+    NET["pypowsybl<br/>create_ieee9() ou create_ieee14()"]:::fixed
+    BASE["Loads de référence p0, q0<br/>Impédances R, X, B, G<br/>Setpoints générateurs<br/>(valeurs IEEE standard, fixées)"]:::fixed
+    FP["fp ~ Uniform(0,9 ; 1,1)<br/>(multiplicateurs P indépendants par load)"]:::synth
+    FQ["fq ~ Uniform(0,9 ; 1,1)<br/>(multiplicateurs Q indépendants par load)"]:::synth
+    PERT["p = p0 · fp<br/>q = q0 · fq<br/>(loads perturbés)"]:::derived
+    NR["pypowsybl AC LF solver<br/>(Newton-Raphson)"]:::derived
+    V["V_mag, V_angle convergés<br/>par bus"]:::derived
+    H2MG["Conversion en H2MG<br/>via pypowsybl-to-energnn"]:::derived
+    GNN["GNN prédit V_mag, V_angle<br/>à partir de loads + topologie"]:::gnn
+
+    NET --> BASE
+    BASE --> PERT
+    FP --> PERT
+    FQ --> PERT
+    PERT --> NR
+    BASE --> NR
+    NR --> V
+    BASE --> H2MG
+    PERT --> H2MG
+    V --> H2MG
+    H2MG --> GNN
+</div>
+
+<p><b>Caractéristiques du substrat</b>&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Élément</th><th>Source</th><th>Variation par échantillon</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Topologie (bus, lignes, transformateurs)</td><td>IEEE-9 ou IEEE-14 via <code>pypowsybl</code></td><td>Fixée</td></tr>
+    <tr><td>Impédances de ligne (R, X, B, G)</td><td>Valeurs IEEE standard</td><td>Fixées</td></tr>
+    <tr><td>Setpoints de générateurs (P_gen, V_target)</td><td>Valeurs IEEE standard</td><td>Fixés</td></tr>
+    <tr><td><b>Loads (P, Q par load)</b></td><td><b>Base IEEE × multiplicateur Uniform(0,9 ; 1,1) indépendant pour P et Q</b></td><td><b>Aléatoire</b></td></tr>
+    <tr><td>État convergé (V_mag, V_angle par bus)</td><td>Calculé par <code>pypowsybl.loadflow.run_ac</code></td><td>Déterministe une fois les loads fixés</td></tr>
+  </tbody>
+</table>
+
+<p><b>Volumétrie par seed</b>&nbsp;:</p>
+
+<ul>
+  <li><code>dataset_size = 32</code> échantillons d'entraînement, <code>val_dataset_size = 16</code> échantillons de validation.</li>
+  <li><code>perturbation_scale = 0,1</code> : multiplicateur tiré dans <code>[0,9 ; 1,1]</code>, indépendamment pour <code>p</code> et <code>q</code> de chaque load (facteur de puissance variable par échantillon).</li>
+  <li>Sur IEEE-9 (3 loads)&nbsp;: 6 tirages aléatoires par échantillon, soit 32 × 6 = 192 tirages par seed.</li>
+  <li>Sur IEEE-14 (11 loads)&nbsp;: 22 tirages par échantillon, soit 32 × 22 = 704 tirages par seed.</li>
+</ul>
+
+<p><b>Stratégie de cache</b>&nbsp;: la totalité des 48 échantillons (train + validation) est générée une fois à l'instanciation du loader puis mise en cache sous forme de <code>JaxGraph</code>. Le solveur Newton-Raphson de <code>pypowsybl</code> n'est jamais appelé pendant les epochs suivantes, ce qui isole les comparaisons entre approches du non-déterminisme de fil-thread du solveur LU sparse.</p>
+
+<p><b>Portée et limite</b>&nbsp;: la variation de l'unique vecteur <code>(p, q)</code> selon une loi uniforme de ±10 % autour des loads de référence ne reproduit ni les profils journaliers ou saisonniers, ni la corrélation spatiale entre loads voisins, ni les événements de pointe ou de contingence. Les résultats Gate 5 reportés dans les chapitres 11 à 15 sont donc valides pour la <em>comparaison entre mécanismes</em> sur un substrat contrôlé, mais ne préjugent pas du transfert vers un snapshot de production RTE. Cette validation hors-distribution est l'objet de la Gate 8 reportée dans le périmètre actuel.</p>
+
+<hr>
+
+<h3>1.3. Grille de validation : les huit portes (Gates)</h3>
+
+<p>Chaque Approche du backlog d'attention passe par une grille de validation séquentielle de huit Gates, conçue pour différencier la correction du code (Gates 1 à 2), la convergence de l'apprentissage (Gates 3 à 5), le coût d'exécution (Gate 6) et la reproductibilité (Gate 7). Une huitième Gate couvre la robustesse hors-distribution sur snapshot point figé du réseau français, encore différée tant que le snapshot n'est pas livré. La grille est identique pour toutes les Approches : les comparaisons entre Approches sont donc faites sur des critères figés, sans réglage <em>ad hoc</em> par mécanisme.</p>
+
+<div class="mermaid">
+flowchart LR
+    classDef correctness fill:#bbdefb,stroke:#1565c0,color:#0d47a1
+    classDef training fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef perf fill:#fff9c4,stroke:#f9a825,color:#e65100
+    classDef deferred fill:#eeeeee,stroke:#9e9e9e,color:#616161
+
+    subgraph CORR["Correction du code"]
+        direction TB
+        G1["Gate 1 — Unit<br/>tests/model/unit/"]:::correctness
+        G2["Gate 2 — Static<br/>black, flake8"]:::correctness
+        G1 --> G2
+    end
+
+    subgraph TRAIN["Convergence de l'apprentissage"]
+        direction TB
+        G3["Gate 3 — LinearSystem<br/>Tiny+Small × 3 seeds"]:::training
+        G4["Gate 4 — Integration<br/>tests/model/integration/"]:::training
+        G5["Gate 5 — IEEE supervisé<br/>ieee9 + ieee14 × Tiny+Small × 3 seeds"]:::training
+        G3 --> G4 --> G5
+    end
+
+    subgraph EXEC["Coût et reproductibilité"]
+        direction TB
+        G6["Gate 6 — Perf<br/>forward + fwd+bwd<br/>LinearSystem, ieee118, ieee300"]:::perf
+        G7["Gate 7 — Consistency<br/>SHA-256 forward output<br/>ieee14"]:::perf
+        G6 --> G7
+    end
+
+    subgraph DEPLOY["Robustesse hors-distribution"]
+        G8["Gate 8 — Point figé réseau français<br/>(différée jusqu'à livraison)"]:::deferred
+    end
+
+    CORR --> TRAIN --> EXEC --> DEPLOY
+</div>
+
+<p><b>Détail des portes</b>&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Gate</th><th>Ce qui est testé</th><th>Substrat</th><th>Évidence reportée</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>1 Unit</b></td>
+      <td>Pour chaque message function ou coupler : construction, forme et finitude de la sortie, équivariance par permutation, masquage des adresses fictives, déterminisme par seed, sûreté <code>vmap</code> + <code>jit</code>, flux de gradient, cas dégénérés (graphe vide, configuration triviale)</td>
+      <td>—</td>
+      <td>15 à 16 tests pytest par Approche, exécutés sans GPU</td>
+    </tr>
+    <tr>
+      <td><b>2 Static</b></td>
+      <td><code>black --check</code> pour le formatage, <code>flake8</code> pour les lints, vérification que les modules <code>__init__.py</code> exposent correctement les classes ajoutées</td>
+      <td>—</td>
+      <td>Pas de nouvelle violation introduite par rapport à la branche de base</td>
+    </tr>
+    <tr>
+      <td><b>3 LinearSystem</b></td>
+      <td>L'Approche s'intègre dans <code>RecurrentCoupler</code> (ou son extension Item 5), le pipeline entier s'exécute, la loss d'entraînement décroît, la <em>best-eval</em> n'est pas significativement pire que LocalSum (référence) sous les mêmes seeds, optimizer et budget d'epoch</td>
+      <td>LinearSystem (toy DC, <code>n_max=3</code>)</td>
+      <td>Médiane <em>best-eval</em> sur 3 seeds, courbe de loss par seed, paramètre count</td>
+    </tr>
+    <tr>
+      <td><b>4 Integration</b></td>
+      <td>L'Approche se compose avec les autres briques du pipeline (encodeur, décodeur, normalisateur) au sein du <code>RecurrentCoupler</code>, et survit à la composition <code>vmap</code> + <code>jit</code> sur un contexte batché</td>
+      <td>LinearSystem (un cas batch dans <code>test_coupler.py</code>)</td>
+      <td>Cas pytest dédié dans <code>tests/model/integration/test_coupler.py</code></td>
+    </tr>
+    <tr>
+      <td><b>5 IEEE supervisé</b></td>
+      <td>Entraînement <em>end-to-end</em> sur AC LF, configuration Tiny et Small, 3 seeds, comparaison directe à LocalSum sur les mêmes données et budget. La <em>best-eval</em> doit satisfaire un seuil par réseau (ieee9 Small ≤ 5,1 × 10⁻³, ieee14 Small ≤ 4,6 × 10⁻³) ou être explicitement reportée si non-respecté</td>
+      <td>ieee9 et ieee14, périmètre fixé par <code>feedback_verification_scope</code></td>
+      <td>Tableau side-by-side LocalSum vs Approche, <em>best-eval</em> par seed, train wall-time, comparaison sur 3 seeds</td>
+    </tr>
+    <tr>
+      <td><b>6 Perf</b></td>
+      <td>Médiane wall-time d'un forward et d'un forward+backward sur trois substrats de taille croissante, après 20 itérations de warm-up et sur 100 itérations chronométrées, en mode <code>jit</code>-compilé. Le ratio par rapport à LocalSum doit rester sous ×3 (budget agreement implicite avec l'amont)</td>
+      <td>LinearSystem, ieee118, ieee300 (pas d'entraînement, uniquement forward timing)</td>
+      <td>Tableau forward + fwd+bwd en ms, ratio par rapport à LocalSum, peak memory</td>
+    </tr>
+    <tr>
+      <td><b>7 Consistency</b></td>
+      <td>Le hash SHA-256 du tenseur de sortie du forward, calculé avec un seed fixe sur le contexte ieee14 pré-cached, doit être reproductible bit-pour-bit entre deux exécutions successives sur le même hardware. Le cache pickle isole le solveur Newton-Raphson de <code>pypowsybl</code> (non bit-déterministe) du périmètre testé</td>
+      <td>ieee14 (contexte sérialisé)</td>
+      <td>Empreinte SHA-256 préfixée (8 caractères) dans <code>benchmarks/results/&lt;approche&gt;/consistency_*.json</code></td>
+    </tr>
+    <tr>
+      <td><b>8 Point figé réseau français</b></td>
+      <td>Inference de l'Approche entraînée sur un snapshot de production réel (loads, états convergés). Mesure le décalage entre eval synthétique (Gate 5) et eval domain-shift</td>
+      <td>Point figé du réseau (non encore livré)</td>
+      <td>Differée. Sera ré-exécutée rétrospectivement sur les modèles déjà entraînés une fois le snapshot disponible</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><b>Convention de blocage</b>&nbsp;: si une porte échoue, l'investigation reste à ce niveau jusqu'à résolution ; on ne progresse pas à la porte suivante sans correction. Cette discipline évite qu'un défaut local (par exemple une non-équivariance détectée à la Gate 1) ne contamine la lecture des chiffres en aval. Aucune Approche livrée n'a sauté de porte ; les portes 6, 7 et 8 sont différées pour l'Item 5 et reportées en commit de suivi sur la branche dédiée <code>virtual-address-coupler</code>.</p>
+
+<p><b>Lecture des chapitres suivants</b>&nbsp;: chaque chapitre 11 à 16 ouvre par un tableau «&nbsp;Grille de validation&nbsp;» qui résume l'état des huit portes pour l'Approche concernée, puis détaille les chiffres reportés. Le lecteur peut donc parcourir la grille d'une Approche en moins d'une minute et descendre dans les détails uniquement sur les portes qui le concernent.</p>
+
+<hr>
+
+
+<p>Le <b>baseline</b> désigne ici l'exécution du pipeline EnerGNN amont (<code>https://github.com/energnn/energnn</code>) sans modification, sur les problèmes fournis dans le code source amont, afin de disposer de chiffres de <em>référence</em>. Toute variante d'attention ajoutée par la suite doit&nbsp;:</p>
+
+<ol>
+  <li>S'exécuter sur le <em>même</em> pipeline, sans casser l'architecture.</li>
+  <li>Atteindre un eval score au moins équivalent au baseline.</li>
+  <li>Fournir des chiffres précis pour le rapport technique.</li>
+</ol>
+
+<p>Le présent document reflète l'état actuel : trois bancs d'essai sont déjà passés.</p>
+
+<ol>
+  <li><b>LinearSystem (toy)</b>, chapitres 2 à 8 : pipeline d'origine d'EnerGNN amont (<code>https://github.com/energnn/energnn</code>), testé avec <code>n_max=3</code>. Vérifie que le pipeline produit des résultats cohérents et reproductibles.</li>
+  <li><b>Conversion IEEE</b>, chapitre 9 : conversion et forward sur six réseaux IEEE réels (9, 14, 30, 57, 118, 300). Confirme que le pipeline traite une topologie réaliste ; les six tailles passent avec des V_mag plausibles.</li>
+  <li><b>Baseline IEEE supervisé</b>, chapitre 10 : entraînement supervisé sur IEEE-9 et IEEE-14 via <code>ACLoadFlowProblem</code>. C'est la référence Gate&nbsp;5 pour l'évaluation des mécanismes d'attention.</li>
+</ol>
+
+<div class="info">
+<b>Idée principale :</b> le baseline fournit trois points de référence. (1)&nbsp;Il atteste de la correction du pipeline, (2)&nbsp;il démontre l'exécution de bout en bout sur une topologie réelle, et (3)&nbsp;il fixe des chiffres de référence (MSE ≈ 5×10⁻³ sur ieee9/ieee14 en configuration Small) que les variantes d'attention doivent égaler ou améliorer.
+</div>
+
+<hr>
+
+<h2 id="sec-problem">2. Problème LinearSystem : nature physique et formulation<a href="#sec-problem" class="anchor">#</a></h2>
+
+<p>Il s'agit du seul problème fourni dans <code>energnn.problem.example.linear_system</code> du code source amont. Il correspond à une <em>load flow DC simplifié</em>.</p>
+
+<h3>2.1. Modèle physique</h3>
+
+<p>Soit un réseau électrique à $n$ bus et $m$ lignes. Sous l'approximation DC power flow, le flux de puissance active satisfait l'équation linéaire suivante&nbsp;:</p>
+
+$$ \mathbf{B} \cdot \boldsymbol{\theta} = \mathbf{P} $$
+
+<p>où&nbsp;:</p>
+
+<ul>
+  <li>$\mathbf{B} \in \mathbb{R}^{n \times n}$ est la <b>matrice de susceptance</b> (type laplacien). Hors diagonale, $B_{ij} = -b_{ij}$ où $b_{ij}$ est la susceptance de la ligne entre les bus $i$ et $j$. Sur la diagonale, $B_{ii} = -\sum_{j \neq i} B_{ij} + \text{shunt}_i$.</li>
+  <li>$\boldsymbol{\theta} \in \mathbb{R}^n$ est le vecteur des <b>angles de phase</b> à chaque bus — l'inconnue à déterminer.</li>
+  <li>$\mathbf{P} \in \mathbb{R}^n$ est le vecteur des <b>injections de puissance active</b> à chaque bus.</li>
+</ul>
+
+<h3>2.2. Problème supervisé</h3>
+
+<p>Le couple $(\mathbf{B}, \mathbf{P})$ constitue le contexte (input) ; le modèle doit prédire $\boldsymbol{\theta}$ (décision). Comme $\boldsymbol{\theta}^\star = \mathbf{B}^{-1} \mathbf{P}$ existe et est unique (l'ajout d'un petit shunt sur la diagonale garantit l'inversibilité de $\mathbf{B}$), <b>le problème admet un oracle exact</b> : chaque instance a une unique solution correcte.</p>
+
+<h3>2.3. Pourquoi un GNN sur un problème linéaire&nbsp;?</h3>
+
+<p>Parce que $\mathbf{B}^{-1}$ est une opération <em>globale</em> (chaque entrée dépend de toutes les autres), alors qu'un GNN n'effectue que du message passing <em>local</em>. Le modèle doit donc <em>approximer</em> $\mathbf{B}^{-1}$ par plusieurs étapes successives de message passing. Ce n'est pas trivial, et cela en fait un bon banc d'essai pour la capacité du GNN à apprendre une structure globale.</p>
+
+<hr>
+
+<h2 id="sec-h2mg">3. Représentation H2MG : graphes de contexte et de décision<a href="#sec-h2mg" class="anchor">#</a></h2>
+
+<p>EnerGNN ne consomme pas directement $(\mathbf{B}, \mathbf{P})$ sous forme matricielle. L'ensemble des données est représenté en <b>Hyper Heterogeneous Multi Graph</b> (H2MG). Pour LinearSystem, la structure est la suivante.</p>
+
+<h3>3.1. Structure du contexte</h3>
+
+<pre><code>CONTEXT_STRUCTURE = GraphStructure(hyper_edge_sets={
+    "line": HyperEdgeSetStructure(
+        port_list=["from", "to"],
+        feature_list=["susceptance"]),
+    "bus":  HyperEdgeSetStructure(
+        port_list=["id"],
+        feature_list=["active_power_injection"]),
+})</code></pre>
+
+<ul>
+  <li><b>Classe d'hyper-arête <code>line</code></b> : chaque ligne possède deux ports (<code>from</code>, <code>to</code>) et une feature (<code>susceptance</code>).</li>
+  <li><b>Classe d'hyper-arête <code>bus</code></b> : chaque bus possède un port (<code>id</code> qui pointe sur lui-même) et une feature (<code>active_power_injection</code>).</li>
+  <li><b>Addresses</b> : espace d'adresses commun aux lignes et aux bus. Une ligne <code>from=3, to=5</code> pointe vers les adresses 3 et 5 ; un bus <code>id=3</code> pointe également vers l'adresse 3. Les messages d'une ligne aboutissent à l'adresse 3, où se situe aussi le bus 3 — c'est ainsi que H2MG encode la connectivité « cette ligne est reliée à ce bus ».</li>
+</ul>
+
+<h3>3.2. Structure de la décision</h3>
+
+<pre><code>DECISION_STRUCTURE = GraphStructure(hyper_edge_sets={
+    "bus": HyperEdgeSetStructure(
+        port_list=None,
+        feature_list=["phase_angle"]),
+})</code></pre>
+
+<ul>
+  <li>La décision ne contient qu'une seule classe <code>bus</code>, sans port, avec la feature <code>phase_angle</code>.</li>
+  <li>L'absence de port signifie que la décision n'est pas connectée à l'espace d'adresses : elle constitue simplement un <em>output par objet</em>. Chaque bus possède un angle de phase prédit.</li>
+</ul>
+
+<div class="info">
+<b>Pourquoi la décision est-elle par bus et non par adresse&nbsp;?</b> Parce que la grandeur physique (l'angle de phase) est attachée à un bus, pas à une adresse. Un bus occupe une adresse, mais la grandeur est portée par l'<em>objet bus</em>, non par l'<em>adresse</em>. C'est une règle d'EnerGNN : les adresses servent uniquement à la comptabilité de la topologie, tandis que les décisions sont toujours rattachées à une classe d'objet spécifique.
+</div>
+
+<hr>
+
+<h2 id="sec-dataset">4. Génération du jeu de données : algorithme <code>_generate_sparse_linear_system</code><a href="#sec-dataset" class="anchor">#</a></h2>
+
+<p>Le code de l'algorithme se trouve dans <code>linear_system.py:142-179</code> du code source amont. La génération d'une instance suit cinq étapes.</p>
+
+<h3>4.1. Étape 1 — choisir la taille</h3>
+
+<pre><code>n = np.random.randint(2, n_max + 1)            # number of buses, 2..n_max
+m = np.random.randint(n - 1, n*(n - 1)//2 + 1)  # number of lines, tree to complete graph</code></pre>
+
+<p>Avec <code>n_max=3</code> (valeur par défaut du tutoriel et du baseline), $n \in \{2, 3\}$ et $m \in \{1, 2, 3\}$. Configuration très réduite, à caractère pédagogique.</p>
+
+<h3>4.2. Étape 2 — construire un arbre couvrant pour garantir la connexité</h3>
+
+<pre><code>nodes = np.arange(n); np.random.shuffle(nodes)
+for i in range(n - 1):
+    u, v = nodes[i], nodes[i + 1]
+    weight = np.random.rand() + 0.5         # weight in [0.5, 1.5]
+    B[u, v] = B[v, u] = -weight</code></pre>
+
+<p>L'arbre couvrant comprend $n - 1$ arêtes et assure la connexité du graphe (aucun bus isolé). Les poids — susceptances positives — sont tirés uniformément dans $[0,5 ; 1,5]$.</p>
+
+<h3>4.3. Étape 3 — ajouter des arêtes jusqu'à atteindre <code>m</code></h3>
+
+<pre><code>possible_edges = [(i, j) for i in range(n) for j in range(i+1, n) if B[i, j] == 0]
+if possible_edges and m > n - 1:
+    n_extra = min(m - (n - 1), len(possible_edges))
+    idx = np.random.choice(len(possible_edges), n_extra, replace=False)
+    for i in idx:
+        u, v = possible_edges[i]
+        weight = np.random.rand() + 0.5
+        B[u, v] = B[v, u] = -weight</code></pre>
+
+<h3>4.4. Étape 4 — calculer la diagonale et ajouter un petit shunt pour rendre $\mathbf{B}$ inversible</h3>
+
+<pre><code>for i in range(n):
+    B[i, i] = -np.sum(B[i, :]) + 0.1   # 0.1 shunt to ground</code></pre>
+
+<p>Sans shunt, la matrice laplacienne pure a une valeur propre nulle (le noyau contient le vecteur constant) et n'est pas inversible. L'ajout de $0,1$ sur chaque entrée diagonale en fait un « laplacien amorti » qui rend $\mathbf{B}$ définie positive et inversible.</p>
+
+<h3>4.5. Étape 5 — fabriquer l'oracle $\boldsymbol{\theta}^\star$ et déduire $\mathbf{P}$</h3>
+
+<pre><code>theta = np.random.randn(n)   # standard normal
+P = B @ theta                # back-compute P from theta</code></pre>
+
+<p>Pour garantir l'existence et la justesse de l'oracle, le code source amont procède par <em>génération inverse</em> : il tire $\boldsymbol{\theta}$ au hasard puis calcule $\mathbf{P} = \mathbf{B} \boldsymbol{\theta}$. Cette approche&nbsp;:</p>
+
+<ul>
+  <li>garantit que $\boldsymbol{\theta}^\star$ existe et est unique (c'est précisément le $\boldsymbol{\theta}$ tiré)&nbsp;;</li>
+  <li>évite de devoir exécuter un solveur linéaire pour obtenir l'oracle&nbsp;;</li>
+  <li>fournit une distribution gaussienne naturelle pour $\boldsymbol{\theta}^\star$.</li>
+</ul>
+
+<h3>4.6. Emballage dans un JaxGraph</h3>
+
+<pre><code>rows, cols = np.nonzero(np.triu(B, k=1))
+line = JaxHyperEdgeSet.from_dict(
+    port_dict={"from": rows, "to": cols},
+    feature_dict={"susceptance": -B[rows, cols]})
+bus_context = JaxHyperEdgeSet.from_dict(
+    port_dict={"id": np.arange(n)},
+    feature_dict={"active_power_injection": P})
+context = JaxGraph.from_dict(
+    hyper_edge_set_dict={"line": line, "bus": bus_context},
+    n_addresses=jnp.array(n))
+
+bus_oracle = JaxHyperEdgeSet.from_dict(
+    port_dict=None,
+    feature_dict={"phase_angle": theta})
+oracle = JaxGraph.from_dict(
+    hyper_edge_set_dict={"bus": bus_oracle},
+    n_addresses=jnp.array(n))</code></pre>
+
+<h3>4.7. Configuration du jeu de données du baseline</h3>
+
+<table>
+  <thead><tr><th>Paramètre</th><th class="num">Valeur</th><th>Signification</th></tr></thead>
+  <tbody>
+    <tr><td><code>n_max</code></td><td class="num">3</td><td>Nombre maximal de bus par instance</td></tr>
+    <tr><td><code>dataset_size</code></td><td class="num">64</td><td>Nombre d'instances par epoch d'entraînement</td></tr>
+    <tr><td><code>batch_size</code></td><td class="num">4</td><td>Nombre d'instances par step d'entraînement</td></tr>
+    <tr><td><code>val_dataset_size</code></td><td class="num">32</td><td>Nombre d'instances pour la validation</td></tr>
+    <tr><td><code>train seed</code></td><td class="num">10*seed + 7</td><td>0 → 7, 1 → 17, 2 → 27</td></tr>
+    <tr><td><code>val seed</code></td><td class="num">10*seed + 8</td><td>Décalage d'un cran par rapport au train seed pour des datasets distincts</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="sec-model">5. Architecture du modèle : pipeline à quatre étages<a href="#sec-model" class="anchor">#</a></h2>
+
+<p>La classe <code>energnn.model.GNN</code> organise quatre modules en pipeline&nbsp;:</p>
+
+<pre><code>graph
+  -> Normalizer       (feature normalization)
+  -> Encoder          (lift features into latent space)
+  -> Coupler          (message passing)
+  -> Decoder          (project coordinates back to decision space)
+  -> decision</code></pre>
+
+<h3>5.1. Normalizer — <code>TDigestNormalizer</code></h3>
+
+<p>Pour chaque classe (line, bus) et chaque feature, un <em>T-Digest</em> est maintenu afin d'estimer la distribution quantile de la feature. À l'entraînement, chaque batch met à jour le T-Digest. La sortie est la feature normalisée par interpolation linéaire par morceaux entre les quantiles, avec pour cible une distribution uniforme sur $[-1, 1]$.</p>
+
+<p>Paramètre clé&nbsp;: <code>n_breakpoints</code> (10 en Tiny, 20 en Small) — nombre de points de la grille quantile.</p>
+
+<h3>5.2. Encoder — <code>MLPEncoder</code></h3>
+
+<p>Pour chaque classe $c$, un MLP $\phi^c_\theta$ propre relève le vecteur de feature vers la dimension <code>latent_dim</code>&nbsp;:</p>
+
+$$ \tilde{x}_e = \phi^c_\theta(x_e), \quad \forall e \in \mathcal{E}^c $$
+
+<p>Tiny utilise <code>latent_dim=4</code> avec un MLP sans hidden layer (une seule couche linéaire). Small utilise <code>latent_dim=8</code> et <code>hidden=[16]</code>.</p>
+
+<h3>5.3. Coupler — <code>RecurrentCoupler</code></h3>
+
+<p>C'est la partie « GNN » à proprement parler. Le coupler effectue <code>n_steps</code> pas d'Euler avant&nbsp;:</p>
+
+$$ h_a(t+1) = h_a(t) + \delta t \cdot \phi_\theta(\psi^1_\theta(h, x)_a, \ldots, \psi^k_\theta(h, x)_a) $$
+
+<p>où&nbsp;:</p>
+<ul>
+  <li>$h_a$ représente les coordonnées latentes par adresse (forme $[n_{addr}, \text{latent\_dim}]$), initialisées à zéro&nbsp;;</li>
+  <li>$\psi^i_\theta$ est la $i$-ème message passing function (Tiny n'en utilise qu'une : <code>LocalSumMessagePassingFunction</code>)&nbsp;;</li>
+  <li>$\phi_\theta$ est le MLP extérieur qui combine les messages&nbsp;;</li>
+  <li>$\delta t = 1/n_{\text{steps}}$.</li>
+</ul>
+
+<p>Tiny utilise <code>n_steps=5</code>, Small <code>n_steps=10</code>.</p>
+
+<h4>5.3.1. <code>LocalSumMessagePassingFunction</code> en détail</h4>
+
+<p>C'est la <b>message function de référence</b> contre laquelle les variantes d'attention sont comparées. Sa formulation est&nbsp;:</p>
+
+$$ \psi_\theta(h, x)_a = \sigma\left( \sum_{(c, e, o) \in \mathcal{N}(a)} \xi^{c,o}_\theta(h_e, x_e) \right) $$
+
+<ul>
+  <li>$\mathcal{N}(a)$ désigne l'ensemble des triplets $(c, e, o)$ tels que le port $o$ de l'hyper-arête $e$ de classe $c$ est connecté à l'adresse $a$.</li>
+  <li>$\xi^{c,o}_\theta$ est un MLP propre à chaque couple (class, port). Son entrée est la concaténation de toutes les port-coordinates et du vecteur de feature de l'hyper-arête.</li>
+  <li>$\sigma$ est l'activation extérieure (<code>tanh</code> en Tiny / Small).</li>
+</ul>
+
+<p>L'implémentation utilise <code>gather</code> pour récupérer $h_e$ selon les ports, applique le MLP, masque selon <code>non_fictitious</code>, puis effectue un <code>scatter_add</code> dans un accumulateur de taille $[n_{addr}, \text{out\_size}]$.</p>
+
+<h3>5.4. Decoder — <code>MLPEquivariantDecoder</code></h3>
+
+<p>Pour chaque classe de la structure de décision, un MLP projette le couple (port-coordinates, features encodées) vers les features de sortie&nbsp;:</p>
+
+$$ \hat{y}_e = \phi^c_\theta(\{h_a : a \in \text{ports}(e)\}, x_e) $$
+
+<p>En configuration Tiny, le bus n'a qu'un seul port (<code>id</code>) ; l'entrée du décodeur est donc $h_{a=\text{bus.id}}$ concaténée aux features bus encodées (4 dimensions en Tiny), pour produire un scalaire <code>phase_angle</code>.</p>
+
+<h3>5.5. Récapitulatif des configurations Tiny et Small</h3>
+
+<table>
+  <thead><tr><th>Composant</th><th>Tiny</th><th>Small</th></tr></thead>
+  <tbody>
+    <tr><td>Normalizer breakpoints</td><td class="num">10</td><td class="num">20</td></tr>
+    <tr><td>Encoder hidden</td><td><code>[]</code></td><td><code>[16]</code></td></tr>
+    <tr><td>Latent dim</td><td class="num">4</td><td class="num">8</td></tr>
+    <tr><td>Coupler n_steps</td><td class="num">5</td><td class="num">10</td></tr>
+    <tr><td>Message MLP hidden</td><td><code>[]</code></td><td><code>[16]</code></td></tr>
+    <tr><td>Nombre total de paramètres</td><td class="num">185</td><td class="num">2 177</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="sec-loss">6. Fonction objectif : <code>get_score</code> et <code>get_gradient</code><a href="#sec-loss" class="anchor">#</a></h2>
+
+<p>EnerGNN sépare deux notions&nbsp;:</p>
+
+<ul>
+  <li>le <b>score</b> ($f$), valeur scalaire qui évalue la qualité de la décision et qui sert au reporting ; il n'a pas besoin d'être différentiable&nbsp;;</li>
+  <li>le <b>gradient</b> ($\nabla_y f$), un graphe vectoriel partageant la structure de la décision, utilisé pour la rétropropagation dans le modèle. Il doit être différentiable côté modèle mais n'est pas nécessairement obtenu par autograd à partir de $f$.</li>
+</ul>
+
+<p>Pour <code>LinearSystemProblem</code>, le code source amont fournit une implémentation simple (les deux fonctions reposent sur la MSE).</p>
+
+<h3>6.1. <code>get_gradient</code></h3>
+
+<pre><code>def get_gradient(self, decision, ...) -> (JaxGraph, dict):
+    gradient = deepcopy(decision)
+    gradient.feature_flat_array = (
+        gradient.feature_flat_array - self.oracle.feature_flat_array
+    )
+    return gradient, {}</code></pre>
+
+<p>Formellement&nbsp;:</p>
+
+$$ \nabla_y f(y; x) = y - y^\star $$
+
+<p>C'est le gradient de la MSE $f(y) = \frac{1}{n} \| y - y^\star \|_2^2$, dont la dérivée par rapport à $y$ vaut $\frac{2}{n}(y - y^\star)$. Le code source amont omet le facteur $\frac{2}{n}$ ; cela reste sans effet, l'optimiseur Adam absorbant ce facteur d'échelle.</p>
+
+<h3>6.2. <code>get_score</code></h3>
+
+<pre><code>def get_score(self, decision, ...) -> (float, dict):
+    gradient = deepcopy(decision)
+    gradient.feature_flat_array -= self.oracle.feature_flat_array
+    objective = jnp.nanmean(jnp.square(gradient.feature_flat_array))
+    return float(objective), {}</code></pre>
+
+<p>Formellement, pour <code>LinearSystemProblemBatch</code>&nbsp;:</p>
+
+$$ f(y; x) = \frac{1}{|y|} \sum_i (y_i - y^\star_i)^2 = \text{MSE}(y, y^\star) $$
+
+<p>L'usage de <code>nanmean</code> garantit l'exclusion des entrées fictives (padding) de la moyenne.</p>
+
+<h3>6.3. Pourquoi un gradient explicite plutôt qu'un autograd&nbsp;?</h3>
+
+<p>EnerGNN n'impose pas que l'objectif soit différentiable. L'interface couvre deux cas d'usage&nbsp;:</p>
+<ul>
+  <li><b>apprentissage supervisé</b> : gradient en forme close, comme dans LinearSystem (<code>decision − oracle</code>)&nbsp;;</li>
+  <li><b>optimisation boîte noire</b> : gradient estimé par Monte-Carlo, REINFORCE, simulateur, etc. — il n'est pas nécessaire que $f$ soit différentiable, dès lors qu'un estimateur de gradient existe.</li>
+</ul>
+
+<hr>
+
+<h2 id="sec-trainer">7. Pipeline d'entraînement : <code>Trainer</code> et Optax<a href="#sec-trainer" class="anchor">#</a></h2>
+
+<p>La classe <code>energnn.trainer.Trainer</code> orchestre la boucle d'entraînement. Un step d'entraînement se déroule ainsi&nbsp;:</p>
+
+<pre><code>def training_step(self, problem_batch, ...):
+    self.model.train()
+    # 1. Get context (batched graph) from problem
+    context, _ = problem_batch.get_context(...)
+
+    # 2. Forward + setup VJP
+    graphdef, params, rest = nnx.split(self.model, nnx.Param, ...)
+    decision, rest_updated, vjp_fn = self._jit_apply(
+        graphdef, params, rest, context, get_info=False)
+
+    # 3. Get gradient_y = decision - oracle (from problem)
+    gradient_y, _ = problem_batch.get_gradient(decision=decision, ...)
+
+    # 4. Cast gradient dtype
+    cotangent = _cast_cotangent_to_primal_dtype(gradient_y, decision)
+
+    # 5. Backward via VJP: dL/dparams
+    grads_params, _ = vjp_fn((cotangent, zeros_like(rest)))
+
+    # 6. Optimizer update
+    self._jit_update_params(self.optimizer, self.model, grads_params)</code></pre>
+
+<p>Le gradient provient de <code>problem.get_gradient</code> et non de l'autograd du modèle. Le pipeline accepte donc des estimateurs de gradient hors-autograd (Monte-Carlo, gradient en forme close, etc.). Pour LinearSystem le gradient est en forme close ; le même chemin marche pour les autres loaders.</p>
+
+<h3>7.1. Optimiseur</h3>
+
+<p>Tutoriel et baseline utilisent tous deux <code>optax.adam(1e-3)</code>&nbsp;:</p>
+
+$$ \theta \gets \theta - \alpha \cdot \widehat{m}_t / (\sqrt{\widehat{v}_t} + \epsilon) $$
+
+<p>Adam avec un learning rate de $10^{-3}$ et les valeurs par défaut $\beta_1 = 0{,}9$ et $\beta_2 = 0{,}999$.</p>
+
+<h3>7.2. Évaluation</h3>
+
+<p>La fonction <code>trainer.eval(val_loader)</code> exécute un forward sur l'ensemble du val_loader, appelle <code>problem.get_score</code> sur chaque batch et retourne le score moyen. C'est l'« eval MSE » affichée dans les résultats.</p>
+
+<h3>7.3. Boucle par epoch dans le script baseline</h3>
+
+<p>Le script baseline n'utilise <em>pas</em> le paramètre <code>val_loader</code> de <code>trainer.train</code> pour évaluer après chaque epoch — un contrôle précis est nécessaire pour enregistrer la courbe. À la place&nbsp;:</p>
+
+<pre><code>for _ in range(n_epochs):
+    trainer.train(train_loader=train_loader, n_epochs=1,
+                  eval_before_training=False, eval_after_epoch=False)
+    eval_curve.append(trainer.eval(val_loader))</code></pre>
+
+<p>Chaque itération de la boucle = 1 epoch d'entraînement + 1 évaluation. La courbe contient exactement <code>n_epochs</code> points.</p>
+
+<hr>
+
+<h2 id="sec-results">8. Résultats du baseline sur le serveur GPU de La Javaness<a href="#sec-results" class="anchor">#</a></h2>
+
+<h3>8.1. Tableau de synthèse</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Config</th>
+      <th class="num">n_params</th>
+      <th class="num">n_epochs</th>
+      <th class="num">final-eval (médiane)</th>
+      <th class="num">best-eval (médiane)</th>
+      <th class="num">step time (ms)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Tiny</td><td class="num">185</td><td class="num">10</td><td class="num">0.4388</td><td class="num">0.4388</td><td class="num">229.0</td></tr>
+    <tr><td>Small</td><td class="num">2 177</td><td class="num">15</td><td class="num">0.3990</td><td class="num">0.3877</td><td class="num">574.5</td></tr>
+  </tbody>
+</table>
+
+<p class="small">
+  <b>final-eval</b> = MSE d'évaluation au dernier epoch, médiane sur les 3 seeds.<br>
+  <b>best-eval</b> = minimum de <code>epoch_eval_curve</code> par seed, médiane ensuite sur les 3 seeds. Référence d'early-stopping plus équitable.
+</p>
+
+<h3>8.2. Courbe de perte Tiny — 3 seeds et médiane</h3>
+
+<div class="chart-wrap"><canvas id="chart-tiny" height="120"></canvas></div>
+
+<h3>8.3. Courbe de perte Small — 3 seeds et médiane (avec phénomène d'overfit)</h3>
+
+<div class="chart-wrap"><canvas id="chart-small" height="120"></canvas></div>
+
+<h3>8.4. Analyse</h3>
+
+<p><b>Tiny :</b> les trois seeds décroissent de manière monotone sur les 10 epochs. Le meilleur epoch est le dernier. La pente reste non nulle à l'epoch 10, indiquant qu'un entraînement plus long serait possible. La médiane décroît de 1,20 à 0,44.</p>
+
+<p><b>Small :</b> deux seeds sur trois atteignent leur minimum AVANT le dernier epoch&nbsp;:</p>
+
+<ul>
+  <li><b>Seed 0</b> : décroissance monotone de 0,92 à 0,46, best = final.</li>
+  <li><b>Seed 1</b> : minimum 0,3534 atteint à <em>l'epoch 7</em>, puis remontée à 0,3972 à l'epoch 15 (overfit +0,044).</li>
+  <li><b>Seed 2</b> : minimum 0,3877 atteint à <em>l'epoch 11</em>, puis remontée à 0,399 à l'epoch 15 (overfit +0,011).</li>
+</ul>
+
+<p>L'overfit indique que la configuration <code>n_epochs=15</code> est <em>excessive</em> pour Small sur ce problème (<code>n_max=3</code>). La zone optimale se situe entre 10 et 11 epochs.</p>
+
+<div class="note">
+<b>Implication pour les variantes d'attention :</b> la comparaison aux variantes d'attention doit s'effectuer sur la <b>best-eval</b> et non sur la final-eval. Si une variante d'attention surapprend plus rapidement en raison d'un nombre de paramètres plus élevé, la comparaison en final-eval ne serait pas équitable.
+</div>
+
+<h3>8.5. Vérification de reproductibilité</h3>
+
+<p>L'évaluation est bit-identique entre exécutions successives sur le serveur GPU de La Javaness pour un même seed&nbsp;:</p>
+
+<table>
+  <thead><tr><th>Config</th><th>Seed</th><th class="num">final eval</th></tr></thead>
+  <tbody>
+    <tr><td>Tiny</td><td class="num">0</td><td class="num">0.5532</td></tr>
+    <tr><td>Tiny</td><td class="num">1</td><td class="num">0.3940</td></tr>
+    <tr><td>Tiny</td><td class="num">2</td><td class="num">0.4388</td></tr>
+    <tr><td>Small</td><td class="num">0</td><td class="num">0.4556</td></tr>
+    <tr><td>Small</td><td class="num">1</td><td class="num">0.3972</td></tr>
+    <tr><td>Small</td><td class="num">2</td><td class="num">0.3990</td></tr>
+  </tbody>
+</table>
+
+<p>Indice fort de déterminisme&nbsp;: JAX est déterministe, le pipeline ne présente ni race condition ni drift float significatif.</p>
+
+<hr>
+
+<h2 id="sec-ieee">9. Conversion et forward sur les six réseaux IEEE<a href="#sec-ieee" class="anchor">#</a></h2>
+
+<p>Ce chapitre vérifie le pipeline de <b>conversion</b> (pypowsybl → JaxGraph via <code>ACLoadFlowInputConverter</code> / <code>OutputConverter</code>) et le <b>forward</b> à travers un GNN non entraîné. Le <code>Trainer</code> n'est pas appelé (pas encore de supervisé)&nbsp;; le chapitre 10 traite l'étape supervisée avec <code>ACLoadFlowProblem</code> et l'oracle injecté via le loader.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Réseau</th>
+      <th class="num">Buses</th>
+      <th class="num">Lines</th>
+      <th class="num">Generators</th>
+      <th class="num">Loads</th>
+      <th class="num">Shunts</th>
+      <th class="num">V_mag [min, max] p.u.</th>
+      <th>Forward fini</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td class="num">9</td><td class="num">6</td><td class="num">3</td><td class="num">3</td><td class="num">0</td><td class="num">[0.996, 1.040]</td><td>Y</td></tr>
+    <tr><td>ieee14</td><td class="num">14</td><td class="num">17</td><td class="num">5</td><td class="num">11</td><td class="num">1</td><td class="num">[1.010, 1.090]</td><td>Y</td></tr>
+    <tr><td>ieee30</td><td class="num">30</td><td class="num">37</td><td class="num">6</td><td class="num">21</td><td class="num">2</td><td class="num">[0.992, 1.082]</td><td>Y</td></tr>
+    <tr><td>ieee57</td><td class="num">57</td><td class="num">63</td><td class="num">7</td><td class="num">42</td><td class="num">3</td><td class="num">[0.938, 1.062]</td><td>Y</td></tr>
+    <tr><td>ieee118</td><td class="num">118</td><td class="num">177</td><td class="num">54</td><td class="num">91</td><td class="num">14</td><td class="num">[0.943, 1.050]</td><td>Y</td></tr>
+    <tr><td>ieee300</td><td class="num">300</td><td class="num">304</td><td class="num">69</td><td class="num">198</td><td class="num">14</td><td class="num">[0.929, 1.074]</td><td>Y</td></tr>
+  </tbody>
+</table>
+
+<h3>9.1. Pipeline appliqué à chaque réseau</h3>
+
+<pre><code>network = pn.create_ieee&lt;N&gt;()      # PyPowSyBl built-in
+lf.run_ac(network)                  # solve AC load flow
+network.per_unit = True             # convert to per-unit
+
+input_graph  = ACLoadFlowInputConverter()(network)
+output_graph = ACLoadFlowOutputConverter()(network)
+
+model = TinyRecurrentEquivariantGNN(
+    in_structure  = input_converter.get_structure(),
+    out_structure = output_converter.get_structure())
+model.eval()
+
+batched = collate_graphs_jax([input_graph])
+decision, _ = model.forward_batch(graph=batched)</code></pre>
+
+<h3>9.2. Vérifications passées</h3>
+<ol>
+  <li><code>lf.run_ac</code> converge sur les six tailles ; le solveur AC LF de pypowsybl est stable.</li>
+  <li>Le converter produit un JaxGraph conforme au schéma (11 classes d'hyper-edge set : <code>batteries</code>, <code>buses</code>, <code>dangling_lines</code>, <code>generators</code>, <code>hvdc_lines</code>, <code>lcc_converter_stations</code>, <code>lines</code>, <code>loads</code>, <code>shunts</code>, <code>static_var_compensators</code>, <code>vsc_converter_stations</code> — la plupart sont nulles pour les IEEE).</li>
+  <li>Les amplitudes de tension bus restent dans une plage physique plausible $[0{,}93 ; 1{,}09]$ p.u. (la norme pour un réseau électrique stable est $[0{,}9 ; 1{,}1]$ p.u.).</li>
+  <li>Le forward sur le modèle Tiny ne génère ni NaN ni inf, et la forme des sorties est correcte.</li>
+</ol>
+
+<hr>
+
+<h2 id="sec-ieee-supervised">10. Baseline IEEE supervisé : <code>ACLoadFlowProblem</code><a href="#sec-ieee-supervised" class="anchor">#</a></h2>
+
+<p>C'est le banc d'essai <b>le plus important</b> pour les travaux d'attention&nbsp;: entraînement supervisé sur une topologie IEEE réelle, avec pour oracle le résultat AC load flow standard de pypowsybl. Implémentation&nbsp;: <code>benchmarks/ac_load_flow_problem.py</code>.</p>
+
+<h3>10.1. Conception d'<code>ACLoadFlowProblem</code></h3>
+
+<p>La classe est un wrapper Problem autour des convertisseurs AC LF de <code>pypowsybl-to-energnn</code>. Chaque instance d'entraînement est générée comme suit&nbsp;:</p>
+
+<ol>
+  <li>Construction du réseau IEEE&nbsp;: <code>network = pn.create_ieee&lt;N&gt;()</code>.</li>
+  <li>Récupération des consignes de charge nominales $(p_0, q_0)$ via <code>network.get_loads()</code>.</li>
+  <li>Perturbation indépendante de chaque charge par un facteur uniforme dans $[1 - \text{scale}, 1 + \text{scale}]$ (avec <code>scale=0.1</code>, soit ±10&nbsp;%).</li>
+  <li>Application de la perturbation&nbsp;: <code>network.update_loads(...)</code>.</li>
+  <li>Résolution AC load flow&nbsp;: <code>results = lf.run_ac(network)</code>.</li>
+  <li>Si le calcul converge, conversion en <b>contexte</b> (features d'entrée) et <b>oracle</b> (V_mag, P, Q, I de la solution).</li>
+  <li>En cas de non-convergence, nouvelle perturbation (jusqu'à 8 tentatives).</li>
+</ol>
+
+<p>La topologie étant fixe pour un loader donné, toutes les instances partagent la même forme et le collate s'effectue sans padding fictif. Les features oracle sont exactement la sortie d'AC LF&nbsp;: le modèle apprend l'application (consignes de charge) → (V, P, Q, I en régime établi).</p>
+
+<h3>10.2. Pourquoi l'IEEE supervisé AC LF est plus signifiant que LinearSystem&nbsp;?</h3>
+
+<table>
+  <thead><tr><th>Aspect</th><th>LinearSystem (toy)</th><th>IEEE supervisé AC LF</th></tr></thead>
+  <tbody>
+    <tr><td>Topologie</td><td>Aléatoire creuse, $n \in \{2, 3\}$</td><td>Réseau réel fixe : 9 / 14 / 30 bus</td></tr>
+    <tr><td>Physique</td><td>DC (linéaire)</td><td>AC (non linéaire, power flow complet)</td></tr>
+    <tr><td>Features</td><td>2 (susceptance, injection P)</td><td>~7 à 11 par classe (<code>r</code>, <code>x</code>, <code>target_p/q</code>, <code>voltage_regulator_on</code>, …)</td></tr>
+    <tr><td>Classes de sortie</td><td>1 (angle de phase)</td><td>10 (V_mag, P/Q/I pour buses, generators, lines, loads, shunts, …)</td></tr>
+    <tr><td>Discrimination des modèles</td><td>Faible (Tiny ≈ Small ≈ 0,4)</td><td>Forte (Small 5×10⁻³ vs Tiny 0,07–0,16, écart 10–30×)</td></tr>
+    <tr><td>Portée du résultat</td><td>Vérification de pipeline</td><td>Mesure réelle de capacité d'attention</td></tr>
+  </tbody>
+</table>
+
+<h3>10.3. Configuration du baseline</h3>
+
+<table>
+  <thead><tr><th>Paramètre</th><th class="num">Valeur</th><th>Signification</th></tr></thead>
+  <tbody>
+    <tr><td><code>ieee_sizes</code></td><td class="num">(9, 14, 30)</td><td>Trois tailles testées</td></tr>
+    <tr><td><code>perturbation_scale</code></td><td class="num">0.1</td><td>Charges à ±10&nbsp;% autour de la valeur nominale</td></tr>
+    <tr><td><code>dataset_size</code></td><td class="num">32</td><td>32 perturbations aléatoires par epoch</td></tr>
+    <tr><td><code>batch_size</code></td><td class="num">4</td><td>4 instances par step</td></tr>
+    <tr><td><code>val_dataset_size</code></td><td class="num">16</td><td>16 perturbations pour l'évaluation (seeds distincts de train)</td></tr>
+    <tr><td>Tiny / Small epochs</td><td class="num">10 / 15</td><td>Même schéma que LinearSystem</td></tr>
+    <tr><td>Seeds</td><td class="num">0, 1, 2</td><td>3 seeds par configuration — 12 runs au total (2 réseaux × 2 tailles × 3 seeds)</td></tr>
+  </tbody>
+</table>
+
+<h3>10.4. Synthèse des résultats (12 runs, serveur GPU de La Javaness)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Réseau</th><th>Config</th><th class="num">n_params</th>
+      <th class="num">final-eval (médiane)</th><th class="num">best-eval (médiane)</th>
+      <th class="num">step time (ms)</th><th class="num">train (s)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">1 587</td><td class="num">1.561e-01</td><td class="num">1.561e-01</td><td class="num">1 147</td><td class="num">230.3</td></tr>
+    <tr><td>ieee9</td><td><b>Small</b></td><td class="num">15 863</td><td class="num"><b>5.075e-03</b></td><td class="num"><b>5.075e-03</b></td><td class="num">2 147</td><td class="num">573.0</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">1 587</td><td class="num">8.668e-02</td><td class="num">8.668e-02</td><td class="num">2 327</td><td class="num">416.1</td></tr>
+    <tr><td>ieee14</td><td><b>Small</b></td><td class="num">15 863</td><td class="num"><b>4.564e-03</b></td><td class="num"><b>4.564e-03</b></td><td class="num">1 983</td><td class="num">474.9</td></tr>
+  </tbody>
+</table>
+
+<p>Comparée à LinearSystem (médiane ≈ 0,4), la performance IEEE supervisé est meilleure d'un facteur 50 à 80 en configuration Small. Le tableau présente deux régimes&nbsp;:</p>
+
+<ul>
+  <li>Small (≈ 15&nbsp;000 paramètres) atteint une MSE de l'ordre de $5 \times 10^{-3}$ — le modèle dispose d'une capacité suffisante pour apprendre l'application des perturbations de charge vers la réponse en régime établi.</li>
+  <li>Tiny (≈ 1&nbsp;500 paramètres) est limité par le manque de capacité, avec une best-eval 10 à 30 fois moins bonne que Small. À l'inverse de LinearSystem, où les deux configurations atteignent ≈ 0,4, ce banc discrimine la capacité du modèle (écart Small/Tiny de ×10 à ×30).</li>
+  <li>Le passage de 9 à 14 bus ne dégrade pas le motif — Small atteint $\approx 5 \times 10^{-3}$ dans les deux cas. Le pipeline est stable sur les petits AC-LF.</li>
+</ul>
+
+<h3>10.5. Courbes de perte Small sur les réseaux IEEE (médiane sur 3 seeds)</h3>
+
+<div class="chart-wrap"><canvas id="chart-aclf-small" height="160"></canvas></div>
+
+<p>La perte décroît de manière <b>monotone</b> sur 15 epochs, sans overfit. La convergence est régulière — la pente reste non nulle à l'epoch 15, un entraînement plus long est possible.</p>
+
+<h3>10.6. Vérification de reproductibilité</h3>
+
+<p>L'évaluation est stable entre les 3 seeds sur le serveur GPU de La Javaness&nbsp;:</p>
+
+<ul>
+  <li>ieee9 Small&nbsp;: 1.15e-3, 5.08e-3, 6.57e-3 (médiane 5.08e-3, ratio max/min ≈ 6×).</li>
+  <li>ieee14 Small&nbsp;: 2.21e-3, 4.56e-3, 9.87e-3 (médiane 4.56e-3).</li>
+</ul>
+
+<p>La variance reste raisonnable, sans outlier ni NaN. Le pipeline est stable et adapté à la comparaison des variantes d'attention.</p>
+
+<h3>10.7. Pre-cache (résolu)</h3>
+
+<div class="info">
+<code>ACLoadFlowProblemLoader</code> pré-génère <code>dataset_size</code> instances une seule fois lors du <code>__init__</code>, avec un RNG initialisé à partir de <code>seed</code>, puis met en cache les paires <code>(context, oracle)</code> sous forme de JaxGraph. Les <code>__iter__</code> et <code>__next__</code> suivants ne font que découper le cache et collate ; <code>lf.run_ac()</code> n'est plus rappelé. L'évaluation est bit-identique (même seed → mêmes instances → même sortie). La validation est effectuée par <code>benchmarks/validate_loader_cache.py</code>, qui contrôle la stabilité par ré-itération, le déterminisme entre instances et la sensibilité au seed. Cette infrastructure pre-cache s'applique à toutes les variantes d'attention sans effort supplémentaire ; les Items 2 à 5 en héritent directement.
+</div>
+
+<hr>
+
+<h2 id="sec-approche1">11. Approche 1 — GATv2 (Item 1 du backlog d'attention)<a href="#sec-approche1" class="anchor">#</a></h2>
+
+<p>L'Item 1 (<code>GATv2MessagePassingFunction</code>) est livré sur la feature branch <code>gatv2-message-passing</code>. L'ensemble de la vérification a été exécutée sur le serveur GPU de La Javaness (CUDA, JAX 0.9.0). Ce chapitre regroupe le périmètre d'implémentation, la formulation, les résultats expérimentaux et l'infrastructure réutilisée par les approches suivantes.</p>
+
+<h3>11.1. Périmètre d'implémentation et grille de validation</h3>
+
+<p><code>GATv2MessagePassingFunction</code> est ajouté à <code>src/energnn/model/coupler/message_passing/message_passing_function.py</code>, en miroir de <code>LocalSumMessagePassingFunction</code>&nbsp;: un score MLP et un value MLP par couple (class, port), sans modification de la signature ABC <code>MessagePassingFunction.__call__</code>. Les sept portes sont exécutées séquentiellement&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Gate</th><th>Contenu</th><th>Substrat</th><th>Statut</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1 Unit</td><td>16 tests (par approche) : initialisation de l'arbre de paramètres, forme des têtes, default flag, stabilité par segment-max, équivariance par permutation, sûreté <code>vmap</code>+<code>jit</code>, cas <code>empty</code> et <code>OOB</code></td><td>—</td><td>pass (16/16)</td></tr>
+    <tr><td>2 Static</td><td><code>black</code>, <code>flake8</code>, <code>mypy</code> sur les fichiers modifiés</td><td>—</td><td>clean (0 nouvelle violation)</td></tr>
+    <tr><td>3 LinearSystem</td><td>RecurrentCoupler + GATv2, Tiny / Small × 3 seeds, entraînement et évaluation</td><td>LinearSystem</td><td>converge (best-eval Tiny 4.24e-01, Small 3.91e-01)</td></tr>
+    <tr><td>4 Integration</td><td>4 tests dans <code>tests/model/integration/test_coupler.py</code></td><td>LinearSystem</td><td>pass (4/4)</td></tr>
+    <tr><td>5 IEEE supervised</td><td>Entraînement et évaluation Tiny / Small × 3 seeds</td><td>ieee9, ieee14</td><td>converge (best ieee14 Small 4.63e-03)</td></tr>
+    <tr><td>6 Perf</td><td>Forward et forward+backward médians, 20 warm-up + 100 mesures, JIT</td><td>LinearSystem, ieee118, ieee300</td><td>overhead ×1.70 à ×1.99 par rapport à LocalSum</td></tr>
+    <tr><td>7 Consistency</td><td>Empreinte SHA-256 du forward, re-run check</td><td>ieee14</td><td>bit-identique (préfixe <code>21647f27…</code>)</td></tr>
+  </tbody>
+</table>
+
+<p>Le périmètre d'entraînement (Gates 3 et 5) couvre LinearSystem, ieee9 et ieee14. Le périmètre de performance (Gate 6) couvre ieee118 et ieee300. Cette répartition isole deux signaux distincts&nbsp;: l'entraînement teste la convergence (le modèle apprend-il sur un AC-LF de petite taille&nbsp;?), la performance mesure un coût à l'échelle réaliste. Les réseaux ieee30 et ieee57 n'apporteraient pas d'information complémentaire entre ces deux bornes.</p>
+
+<h3>11.2. Formulation et stabilisation par segment-max</h3>
+
+<p>Le backlog (section 3.1) pose la formulation suivante&nbsp;:</p>
+
+<p>$$s_{c, e, o} = s_\theta^{c, o}(h_e, x_e) \in \mathbb{R}$$</p>
+<p>$$\alpha_{c, e, o} = \frac{\exp(s_{c, e, o})}{\sum_{(c', e', o') \in \mathcal{N}_x(a)} \exp(s_{c', e', o'})}$$</p>
+<p>$$\psi_\theta(h, x)_a = \sum_{(c, e, o) \in \mathcal{N}_x(a)} \alpha_{c, e, o} \cdot \xi^{c, o}_\theta(h_e, x_e)$$</p>
+
+<p>Forme d'implémentation (sans matérialiser explicitement $\alpha$, afin de laisser le gradient circuler à travers les deux branches score et value)&nbsp;:</p>
+
+<p>$$\psi_\theta(h, x)_a = \frac{N_a}{\varepsilon + D_a}, \quad N_a = \sum_{(c, e, o) \in \mathcal{N}_x(a)} \exp(s_{c, e, o}) \cdot \xi^{c, o}_\theta(h_e, x_e), \quad D_a = \sum_{(c', e', o') \in \mathcal{N}_x(a)} \exp(s_{c', e', o'})$$</p>
+
+<p>Avec des scores dans la plage usuelle (MLP à activation <code>leaky_relu</code> et initialisation <code>lecun_normal</code>), la valeur absolue peut dépasser 88 dès le début de l'entraînement, ce qui provoque un dépassement de capacité de <code>exp(s)</code> en float32 (max $\approx 3{,}4 \times 10^{38}$). La spécification (section 3.1, étape 3) impose une soustraction par segment-max&nbsp;:</p>
+
+<p>$$m_a = \max_{(c, e, o) \in \mathcal{N}_x(a)} s_{c, e, o}, \quad \psi_\theta(h, x)_a = \frac{\sum \exp(s_{c, e, o} - m_a) \cdot \xi^{c, o}_\theta(h_e, x_e)}{\varepsilon + \sum \exp(s_{c', e', o'} - m_a)}$$</p>
+
+<p>Soustraire $m_a$ au numérateur comme au dénominateur compense exactement (la valeur de $\alpha$ est inchangée), tout en bornant l'argument de l'exponentielle à $(-\infty, 0]$. L'overflow disparaît. L'implémentation procède en deux passes&nbsp;: la première utilise <code>scatter_max</code> (ajouté à <code>energnn.model.utils</code>) pour calculer $m_a$, avec les sources fictives clampées à $-10^{30}$ pour ne pas peser sur le max&nbsp;; la seconde rapatrie $m_a$ sur l'axe source, soustrait, applique <code>exp</code>, puis effectue les <code>scatter_add</code> pour $N_a$ et $D_a$. Les tenseurs de scores sont mis en cache entre les deux passes pour éviter de réévaluer le score MLP.</p>
+
+<p>L'implémentation conserve l'exponentielle au numérateur et au dénominateur (correction d'un typo de la spécification) et active <code>score_uses_receiver=True</code> par défaut, conformément à Brody et al. 2022.</p>
+
+<h3>11.3. Résultats Gate 5 (IEEE supervisé AC LF)</h3>
+
+<p>Setup&nbsp;: <code>ACLoadFlowProblemLoader</code> avec <code>perturbation_scale=0.1</code>, <code>dataset_size=32</code>, <code>batch_size=4</code>, <code>val_dataset_size=16</code>, seeds <code>[0, 1, 2]</code>, optimiseur <code>optax.adam(1e-3)</code>. Configuration Tiny&nbsp;: <code>latent_dim=4</code>, <code>hidden=[]</code>, <code>n_steps=5</code>, <code>n_epochs=10</code>. Configuration Small&nbsp;: <code>latent_dim=8</code>, <code>hidden=[16]</code>, <code>n_steps=10</code>, <code>n_epochs=15</code>. Les deux message functions s'exécutent sur le même pipeline (Normalizer, Encoder, RecurrentCoupler, Decoder) sur le serveur GPU de La Javaness.</p>
+
+<table>
+  <thead>
+    <tr><th>Network</th><th>Size</th><th class="num">LocalSum n_params</th><th class="num">GATv2 n_params</th><th class="num">LocalSum best-eval</th><th class="num">GATv2 best-eval</th><th class="num">Δ best-eval</th><th class="num">LocalSum train (s)</th><th class="num">GATv2 train (s)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">1587</td><td class="num">1881</td><td class="num">1.561e-01</td><td class="num">1.392e-01</td><td class="num">-10.8%</td><td class="num">230.3</td><td class="num">246.3</td></tr>
+    <tr><td>ieee9</td><td>Small</td><td class="num">15863</td><td class="num">25289</td><td class="num">5.075e-03</td><td class="num">5.837e-03</td><td class="num">+15.0%</td><td class="num">573.0</td><td class="num">451.3</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">1587</td><td class="num">1881</td><td class="num">8.668e-02</td><td class="num">8.280e-02</td><td class="num">-4.5%</td><td class="num">416.1</td><td class="num">300.5</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">15863</td><td class="num">25289</td><td class="num">4.564e-03</td><td class="num">7.995e-03</td><td class="num">+75.2%</td><td class="num">474.9</td><td class="num">571.0</td></tr>
+  </tbody>
+</table>
+
+<p>Per-seed best-eval (GATv2):</p>
+
+<table>
+  <thead>
+    <tr><th>Network</th><th>Size</th><th class="num">seed 0</th><th class="num">seed 1</th><th class="num">seed 2</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">1.392e-01</td><td class="num">1.322e-01</td><td class="num">1.882e-01</td></tr>
+    <tr><td>ieee9</td><td>Small</td><td class="num">2.169e-03</td><td class="num">5.837e-03</td><td class="num">1.379e-02</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">9.155e-02</td><td class="num">6.572e-02</td><td class="num">8.280e-02</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">9.609e-03</td><td class="num">7.995e-03</td><td class="num">4.629e-03</td></tr>
+  </tbody>
+</table>
+
+<h3>11.4. Observation sur les paramètres et l'eval</h3>
+
+<p>En configuration Tiny (n_params ≈ 1800), GATv2 obtient une best-eval inférieure à LocalSum de 4 à 11&nbsp;% sur ieee9 et ieee14. En configuration Small (n_params = 25&nbsp;289), la tendance s'inverse&nbsp;: LocalSum reprend l'avantage, en particulier sur ieee14 Small où l'écart atteint +75&nbsp;%.</p>
+
+<p>GATv2 compte environ 60&nbsp;% de paramètres en plus que LocalSum sur la configuration Small (25&nbsp;289 contre 15&nbsp;863) et 19&nbsp;% de plus sur Tiny (1&nbsp;881 contre 1&nbsp;587) — le score MLP et le value MLP s'ajoutent là où LocalSum n'utilise qu'un seul MLP. Si l'attention apportait un gain indépendant de la capacité, l'écart se creuserait à l'échelle&nbsp;; ici, il change de signe.</p>
+
+<p>Hypothèse (testée par l'Approche 3, chapitre 13.4) : à faible capacité, la pondération asymétrique de l'attention capte un signal que la somme ignore ; à plus forte capacité, LocalSum absorbe l'hétérogénéité via ses MLPs per-(class, port) et le budget de paramètres supplémentaire de GATv2 se traduit en bruit. MultiHeadQKV (chapitre 13.4) atteint la même best-eval que LocalSum sur Small avec un mécanisme d'attention sans softmax, ce qui isole l'effet softmax-saturating de l'effet capacité brute.</p>
+
+<p>L'Approche 3 (MultiHeadQKV, chapitre 13) apporte un test naturel à cette hypothèse&nbsp;: si une attention linéaire sans softmax atteint la même best-eval que LocalSum sur Small — ce qui se vérifie effectivement au chapitre 13.4 — alors l'écart observé ici avec GATv2 est plutôt attribuable à l'architecture softmax-saturating qu'à un effet brut de capacité.</p>
+
+<h3>11.5. Coût et reproductibilité</h3>
+
+<p><b>Gate 6 (perf).</b> Wall-time médian sur forward et forward+backward, mesuré sur 100 appels après 20 itérations de chauffe, avec hyper-paramètres fixés (<code>in_array_size=4</code>, <code>out_size=4</code>, <code>hidden=[4]</code>, seed 64) et JIT compilé via <code>nnx.jit</code>&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Substrate</th><th class="num">n_addr</th><th class="num">LocalSum fwd (ms)</th><th class="num">GATv2 fwd (ms)</th><th class="num">LocalSum fwd+bwd (ms)</th><th class="num">GATv2 fwd+bwd (ms)</th><th class="num">overhead fwd</th><th class="num">overhead fwd+bwd</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>LinearSystem</td><td class="num">4</td><td class="num">1.68</td><td class="num">2.85</td><td class="num">1.97</td><td class="num">3.47</td><td class="num">×1.70</td><td class="num">×1.76</td></tr>
+    <tr><td>ieee118</td><td class="num">118</td><td class="num">7.18</td><td class="num">14.24</td><td class="num">8.98</td><td class="num">17.85</td><td class="num">×1.98</td><td class="num">×1.99</td></tr>
+    <tr><td>ieee300</td><td class="num">300</td><td class="num">7.13</td><td class="num">14.16</td><td class="num">8.93</td><td class="num">17.78</td><td class="num">×1.99</td><td class="num">×1.99</td></tr>
+  </tbody>
+</table>
+
+<p>Le surcoût de GATv2 par rapport à LocalSum est de ×1,70 sur LinearSystem (graphe de petite taille, le dispatch domine), et de ×1,98 à ×1,99 sur ieee118 et ieee300 (régime kernel-bound, deux MLP au lieu d'un). Toutes les valeurs sont en dessous du plafond de ×3 fixé par la section 5 du backlog.</p>
+
+<p><b>Gate 7 (consistency).</b> L'empreinte SHA-256 du tenseur de sortie de GATv2 (seed 64, contexte IEEE-14 AC-LF) est enregistrée dans <code>benchmarks/results/01_gatv2/consistency_gatv2.json</code>, préfixe <code>21647f27…</code>. Deux exécutions successives produisent la même empreinte au bit près.</p>
+
+<p>Le solveur AC-LF de pypowsybl n'étant pas bit-déterministe entre processus (l'ordre des threads du solveur sparse introduit une variation float32 qui se propage jusqu'au contexte H2MG), le contexte IEEE-14 est sérialisé une fois lors du premier run, puis rechargé lors des re-runs. Le blob mis en cache constitue l'état de référence figé de la gate. La propriété testée est donc la reproductibilité isolée de GATv2, pas celle de pypowsybl.</p>
+
+<h3>11.6. Infrastructure pour les approches suivantes</h3>
+
+<p>L'infrastructure pre-cache loader établie au chapitre 10.7 reste partagée par toutes les approches d'attention. Tous les bancs comparent les variantes sur exactement les mêmes données d'entraînement, ce qui élimine le drift float comme facteur confondant entre runs.</p>
+
+<p><b>Verrouillage du template</b> (<code>AGENTS.md</code>, section « Reference implementation: GATv2 »). Le pattern à six fichiers que les Items 2 à 4 répliquent&nbsp;:</p>
+
+<ul>
+  <li><code>src/energnn/model/coupler/message_passing/message_passing_function.py</code> — définition de classe avec docstring math-first, arbres de MLP per-(class, port), discipline gather / scatter&nbsp;;</li>
+  <li><code>tests/model/unit/test_&lt;variant&gt;_message_passing.py</code> — tests unitaires couvrant construction d'arbre, formes de têtes, rétro-compatibilité d'un optional flag, masquage non-fictif, invariants softmax / aggregation, équivariance par permutation, propagation du gradient, sûreté <code>vmap</code>+<code>jit</code>, graphe vide, indices hors borne&nbsp;;</li>
+  <li><code>tests/model/integration/test_coupler.py</code> — cas RecurrentCoupler (default + optional flag)&nbsp;;</li>
+  <li><code>benchmarks/0X_&lt;variant&gt;/consistency_&lt;variant&gt;.py</code> — contrôle SHA-256 de reproductibilité sur ieee14&nbsp;;</li>
+  <li><code>benchmarks/0X_&lt;variant&gt;/perf_&lt;variant&gt;_vs_localsum.py</code> — chronométrage forward et forward+backward médian sur LinearSystem, ieee118 et ieee300&nbsp;;</li>
+  <li><code>docs/tutorials/0X_&lt;variant&gt;.ipynb</code> — notebook exécutable en deux parties (LinearSystem + IEEE-9/14), chaque cellule de code étant précédée d'une cellule markdown explicative.</li>
+</ul>
+
+<p>L'Item 2 (GlobalAggregation) a été traité en premier en raison de son coût d'implémentation le plus faible. Les Items 3 (MultiHeadQKV), 4 (Performer) et 5 (VirtualAddressRecurrentCoupler) réutilisent la même infrastructure. Les sept portes conservent le même périmètre.</p>
+
+<hr>
+
+<p class="small">Les chiffres sont issus des fichiers JSON sous <code>benchmarks/results/00_baseline/</code> (baseline LocalSum) et <code>benchmarks/results/01_gatv2/</code> (Approche 1&nbsp;: <code>baseline_gatv2_linearsystem.json</code>, <code>baseline_gatv2_ac_load_flow.json</code>, <code>perf_gatv2_vs_localsum.json</code>, <code>consistency_gatv2.json</code>). L'ensemble des runs a été effectué sur le serveur GPU de La Javaness.</p>
+
+<h2 id="sec-approche2">12. Approche 2 — GlobalAggregation (Item 2 du backlog d'attention)<a href="#sec-approche2" class="anchor">#</a></h2>
+
+<p>L'Item 2 (<code>GlobalAggregationMessagePassingFunction</code>) est livré sur la même feature branch <code>gatv2-message-passing</code>. La vérification s'exécute sur le serveur GPU de La Javaness (CUDA, JAX 0.9.0). Ce chapitre regroupe le périmètre d'implémentation, la formulation, les résultats expérimentaux et le compromis caractéristique de l'Approche 2.</p>
+
+<h3>12.1. Périmètre d'implémentation et grille de validation</h3>
+
+<p><code>GlobalAggregationMessagePassingFunction</code> remplit un stub vide du code source amont, dans le fichier <code>src/energnn/model/coupler/message_passing/message_passing_function.py</code>, selon le périmètre v1 de la section 3.2 du backlog&nbsp;: forme <code>mean</code> avec dénominateur corrigé. Les sept portes sont exécutées séquentiellement&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Gate</th><th>Contenu</th><th>Substrat</th><th>Statut</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1 Unit</td><td>13 tests&nbsp;: dimensions du MLP head, invariance par broadcast, dénominateur corrigé (masque 3/10 → mean 1.0), correction de la moyenne vs identité analytique du MLP, <b>invariance</b> par permutation (plus forte que l'équivariance), sûreté <code>vmap</code>+<code>jit</code>, validation du XOR seed / rngs</td><td>—</td><td>pass (13/13)</td></tr>
+    <tr><td>2 Static</td><td><code>black</code>, <code>flake8</code>, <code>mypy</code></td><td>—</td><td>clean (aucune nouvelle violation)</td></tr>
+    <tr><td>3 LinearSystem</td><td>RecurrentCoupler + GlobalAggregation, Tiny / Small × 3 seeds, entraînement et évaluation</td><td>LinearSystem</td><td>converge (best-eval Tiny 6.32e-01, Small 4.37e-01)</td></tr>
+    <tr><td>4 Integration</td><td>5 tests dans <code>tests/model/integration/test_coupler.py</code> (un nouveau cas GlobalAgg)</td><td>LinearSystem</td><td>pass (5/5)</td></tr>
+    <tr><td>5 IEEE supervised</td><td>Entraînement et évaluation Tiny / Small × 3 seeds</td><td>ieee9, ieee14</td><td>converge (best ieee14 Small 1.85e-02)</td></tr>
+    <tr><td>6 Perf</td><td>Forward et forward+backward médians, 20 warm-up + 100 mesures, JIT</td><td>LinearSystem, ieee118, ieee300</td><td><b>plus rapide que LocalSum, overhead ×0.09 à ×0.44</b></td></tr>
+    <tr><td>7 Consistency</td><td>Empreinte SHA-256 du forward, re-run check</td><td>ieee14</td><td>bit-identique (préfixe <code>6c2d2c1a…</code>)</td></tr>
+  </tbody>
+</table>
+
+<h3>12.2. Formulation et dénominateur corrigé</h3>
+
+<p>La section 3.2 du backlog pose la formulation suivante&nbsp;:</p>
+
+<p>$$\psi_\theta(h, x)_a = \frac{1}{|\mathcal{A}_x|} \sum_{a' \in \mathcal{A}_x} \psi_\theta(h_{a'})$$</p>
+
+<p>Couche à vecteur de contexte&nbsp;: la sortie pour chaque adresse réceptrice est le même résumé global. La spécification d'origine utilise le dénominateur $|\mathcal{A}_x|$, c'est-à-dire le nombre total d'adresses, padding fictif compris. Le backlog signale dans ses « Scientific concerns » que le padding dilue le signal après collation et propose un dénominateur corrigé. L'implémentation suit la résolution proposée&nbsp;:</p>
+
+<p>$$\psi_\theta(h, x)_a = \sigma\!\left( \frac{1}{|\mathcal{A}_x^{\mathrm{real}}| + \varepsilon} \sum_{a' \in \mathcal{A}_x^{\mathrm{real}}} \xi_\theta(h_{a'}) \right)$$</p>
+
+<p>où $\xi_\theta$ est un unique value MLP par adresse, $\mathcal{A}_x^{\mathrm{real}}$ est l'ensemble des adresses non fictives, $\varepsilon = 10^{-9}$ garde contre le cas dégénéré (ensemble réel vide), et $\sigma$ est l'<code>outer_activation</code>. Implémentation&nbsp;:</p>
+
+<pre><code>values = self.value_mlp(coordinates) * mask           # (n_addr, out_size)
+total = jnp.sum(values, axis=0)                       # (out_size,)
+n_real = jnp.sum(graph.non_fictitious_addresses)      # scalar
+mean = total / (n_real + self.eps)                    # (out_size,)
+out = jnp.broadcast_to(mean, (n_addr, out_size)) * mask
+return self.outer_activation(out), {}</code></pre>
+
+<p>Aucune factorisation per-(class, port) — la formulation de la section 3.2 opère au niveau adresse —, aucun softmax (mean linéaire, sans <code>exp</code>), aucune stabilisation par segment-max nécessaire. L'<b>invariance</b> par permutation (plus forte que l'équivariance de GATv2 et de LocalSum) découle directement de la symétrie de la moyenne en ses arguments.</p>
+
+<p>Conformément à la résolution proposée du backlog, la version v1 retient uniquement la forme <code>mean</code> ; les variantes multi-tête, pondérée par attention et avec réducteurs <code>min</code>/<code>max</code>/<code>sum</code> sont reportées en v2.</p>
+
+<h3>12.3. Résultats Gate 5 (IEEE supervisé AC LF)</h3>
+
+<p>Le setup reprend exactement la Gate 5 de l'Approche 1&nbsp;: <code>ACLoadFlowProblemLoader</code> avec <code>perturbation_scale=0.1</code>, <code>dataset_size=32</code>, <code>batch_size=4</code>, <code>val_dataset_size=16</code>, seeds <code>[0, 1, 2]</code>, optimiseur <code>optax.adam(1e-3)</code>. Les configurations Tiny et Small sont identiques. Les deux message functions s'exécutent sur le même pipeline sur le serveur GPU de La Javaness.</p>
+
+<table>
+  <thead>
+    <tr><th>Network</th><th>Size</th><th class="num">LocalSum n_params</th><th class="num">GlobalAgg n_params</th><th class="num">LocalSum best-eval</th><th class="num">GlobalAgg best-eval</th><th class="num">Δ best-eval</th><th class="num">LocalSum train (s)</th><th class="num">GlobalAgg train (s)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">1587</td><td class="num">719</td><td class="num">1.561e-01</td><td class="num">2.469e-01</td><td class="num">+58.2%</td><td class="num">230.3</td><td class="num">245.6</td></tr>
+    <tr><td>ieee9</td><td>Small</td><td class="num">15863</td><td class="num">6879</td><td class="num">5.075e-03</td><td class="num">2.662e-02</td><td class="num">+424.4%</td><td class="num">573.0</td><td class="num">386.3</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">1587</td><td class="num">719</td><td class="num">8.668e-02</td><td class="num">1.482e-01</td><td class="num">+70.9%</td><td class="num">416.1</td><td class="num">309.9</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">15863</td><td class="num">6879</td><td class="num">4.564e-03</td><td class="num">1.846e-02</td><td class="num">+304.5%</td><td class="num">474.9</td><td class="num">504.1</td></tr>
+  </tbody>
+</table>
+
+<p>Per-seed best-eval (GlobalAggregation):</p>
+
+<table>
+  <thead>
+    <tr><th>Network</th><th>Size</th><th class="num">seed 0</th><th class="num">seed 1</th><th class="num">seed 2</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">2.655e-01</td><td class="num">2.469e-01</td><td class="num">2.197e-01</td></tr>
+    <tr><td>ieee9</td><td>Small</td><td class="num">3.283e-02</td><td class="num">1.602e-02</td><td class="num">2.662e-02</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">1.401e-01</td><td class="num">1.534e-01</td><td class="num">1.482e-01</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">1.846e-02</td><td class="num">2.114e-02</td><td class="num">1.728e-02</td></tr>
+  </tbody>
+</table>
+
+<h3>12.4. Observation sur la portée des messages</h3>
+
+<p>L'Approche 2 produit un profil opposé à l'Approche 1 : ~55 % de paramètres en moins, forward ×0,09 plus rapide, best-eval ×4 à ×5 plus haute. Dans l'Approche 1, GATv2 compte plus de paramètres que LocalSum mais la best-eval reste partagée (Tiny en faveur de GATv2, Small en faveur de LocalSum) — l'écart change de signe avec la capacité, sans gain net de l'attention à 3 seeds.</p>
+
+<p>GlobalAggregation présente un profil différent&nbsp;: environ 55&nbsp;% de paramètres en moins que LocalSum, un forward 10× plus rapide à la Gate 6, mais une best-eval 1,5 à 5× plus mauvaise sur toutes les paires (réseau, taille). La cause est structurelle&nbsp;:</p>
+
+<ul>
+  <li>L'agrégation per-(class, port) de LocalSum préserve la structure locale de Kirchhoff, nécessaire à la précision sur AC LF. Chaque adresse réceptrice reçoit une information propre, dérivée de ses voisins.</li>
+  <li>GlobalAggregation supprime entièrement la structure locale&nbsp;: toutes les adresses reçoivent la même moyenne globale. Le goulet d'étranglement informationnel est fort, et il devient impossible de distinguer un bus situé dans une zone dense d'un bus en bout de réseau.</li>
+  <li>Conséquence&nbsp;: sur AC LF, tâche sensible à la topologie, la précision de GlobalAgg est inférieure (×4 à ×5), malgré un coût d'exécution réduit.</li>
+</ul>
+
+<p>Ce résultat est exactement celui qu'annonce la section 3.2 du backlog (« Our reading »)&nbsp;: GlobalAggregation construit une couche à vecteur de contexte, où la sortie pour chaque adresse réceptrice est le même résumé global de l'état par adresse&nbsp;; intégrée à un <code>RecurrentCoupler</code>, et combinée à d'autres messages per-address via $\phi$, elle ouvre à chaque adresse une fenêtre sur l'ensemble du graphe. C'est la brique élémentaire utilisée par <code>VirtualAddressRecurrentCoupler</code> (Approche 5, chapitre 15). Citation originale&nbsp;:</p>
+
+<blockquote>
+<i>« Couche de contexte global : la sortie pour chaque adresse réceptrice est le même résumé global de l état per-adresse. Au sein d un RecurrentCoupler, lorsqu elle est combinée avec d autres messages per-adresse via phi, elle donne à chaque adresse une fenêtre sur l ensemble du graphe. Brique destinée à entrer dans VirtualAddressRecurrentCoupler. »</i>
+</blockquote>
+
+<p>GlobalAggregation n'est donc <b>pas un substitut</b> à l'agrégation par somme. Son rôle architectural est celui de brique pour l'Item 5 (<code>VirtualAddressRecurrentCoupler</code>). Dans ce coupler, GlobalAggregation fournit un contexte global par adresse, combiné aux messages per-address (type LocalSum ou GATv2) via $\phi$. Chaque adresse reçoit alors deux signaux distincts : les messages per-(class, port) (signal topologique local) et le résumé de GlobalAggregation (statistique agrégée sur toutes les adresses). La vérification empirique de cette composition est traitée au chapitre 15 (Approche 5, configuration v1 avec LocalSum enveloppé).</p>
+
+<p>Les chiffres autonomes du présent chapitre suivent la propriété attendue par la spécification du backlog. GlobalAggregation a moins de paramètres que LocalSum (environ 55&nbsp;% de moins) et un forward d'un facteur 10 plus rapide ; en contrepartie, le broadcast sur l'ensemble du graphe crée un goulet d'étranglement qui dégrade la précision sur AC LF.</p>
+
+<h3>12.5. Coût et reproductibilité</h3>
+
+<p><b>Gate 6 (perf).</b> Wall-time médian sur forward et forward+backward, mesuré sur 100 appels après 20 itérations de chauffe, JIT compilé via <code>nnx.jit</code>&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Substrate</th><th class="num">n_addr</th><th class="num">LocalSum fwd (ms)</th><th class="num">GlobalAgg fwd (ms)</th><th class="num">LocalSum fwd+bwd (ms)</th><th class="num">GlobalAgg fwd+bwd (ms)</th><th class="num">overhead fwd</th><th class="num">overhead fwd+bwd</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>LinearSystem</td><td class="num">4</td><td class="num">2.07</td><td class="num">0.81</td><td class="num">2.18</td><td class="num">0.97</td><td class="num">×0.39</td><td class="num">×0.44</td></tr>
+    <tr><td>ieee118</td><td class="num">118</td><td class="num">9.56</td><td class="num">0.86</td><td class="num">12.21</td><td class="num">1.16</td><td class="num">×0.09</td><td class="num">×0.09</td></tr>
+    <tr><td>ieee300</td><td class="num">300</td><td class="num">9.04</td><td class="num">0.88</td><td class="num">11.53</td><td class="num">1.06</td><td class="num">×0.10</td><td class="num">×0.09</td></tr>
+  </tbody>
+</table>
+
+<p>GlobalAggregation est 10× plus rapide que LocalSum sur les substrats AC-LF (ieee118, ieee300) et 2,5× plus rapide sur LinearSystem. Le forward se réduit à un unique MLP par adresse, suivi d'une moyenne et d'un broadcast, là où LocalSum exécute un arbre de MLPs per-(class, port) suivi d'un <code>scatter_add</code> par port. La tendance est opposée à celle de l'Approche 1, où le forward de GATv2 est 2× plus lent que celui de LocalSum.</p>
+
+<p><b>Gate 7 (consistency).</b> L'empreinte SHA-256 du tenseur de sortie (seed 64, contexte IEEE-14 AC-LF) est enregistrée dans <code>benchmarks/results/02_global_aggregation/consistency_global_aggregation.json</code>, préfixe <code>6c2d2c1a…</code>. Deux exécutions successives produisent la même empreinte au bit près. Le préfixe diffère de celui de l'Approche 1 (<code>21647f27…</code>) en raison d'une message function différente. Le même schéma de cache de contexte sérialisé est utilisé pour isoler le non-déterminisme du solveur pypowsybl.</p>
+
+<h3>12.6. Infrastructure et Items 3-4</h3>
+
+<p><b>Arborescence</b>&nbsp;: scripts dans <code>benchmarks/02_global_aggregation/</code>, résultats dans <code>benchmarks/results/02_global_aggregation/</code>, notebook <code>docs/tutorials/02_global_aggregation.ipynb</code> au format deux parties (LinearSystem + IEEE-9/14). Le pattern de l'Approche 1 est conservé&nbsp;: six fichiers par approche.</p>
+
+<p>L'infrastructure pre-cache loader établie au chapitre 10.7 reste partagée. Les Items 3 (MultiHeadQKV) et 4 (Performer) la réutilisent tels quels, avec le même template et le même workflow strict sur le serveur GPU de La Javaness.</p>
+
+<p>L'Item 3 (<code>MultiHeadQKVMessagePassingFunction</code>, section 3.3 du backlog) est traité ensuite (chapitre 13), puis l'Item 4 (<code>PerformerMessagePassingFunction</code>, section 3.4 ; chapitre 14). L'Item 5 (<code>VirtualAddressRecurrentCoupler</code>, section 3.5) est traité au chapitre 15 sur la branche feature dédiée <code>virtual-address-coupler</code>.</p>
+
+<hr>
+
+
+<h2 id="sec-approche3">13. Approche 3 — MultiHeadQKV (Item 3 du backlog d'attention)<a href="#sec-approche3" class="anchor">#</a></h2>
+
+<p>L'Item 3 (<code>MultiHeadQKVMessagePassingFunction</code>) est livré sur la même feature branch <code>gatv2-message-passing</code>. La vérification s'exécute sur le serveur GPU de La Javaness (CUDA, JAX 0.9.0). Ce chapitre regroupe le périmètre d'implémentation, la formulation Q/K/V avec score bilinéaire et facteur d'échelle, les résultats inter-approches et les observations sur la projection et la mise à l'échelle.</p>
+
+<h3>13.1. Périmètre d'implémentation et grille de validation</h3>
+
+<p><code>MultiHeadQKVMessagePassingFunction</code> remplit un stub vide du code source amont, dans le fichier <code>src/energnn/model/coupler/message_passing/message_passing_function.py</code> (lignes 447 à 465 avant l'Approche 3), selon le périmètre v1 de la section 3.3 du backlog&nbsp;: Q/K/V single-head bilinéaire avec mise à l'échelle en $1/\sqrt{d_{QK}}$. Les sept portes sont exécutées séquentiellement&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Gate</th><th>Contenu</th><th>Substrat</th><th>Statut</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1 Unit</td><td>15 tests&nbsp;: initialisation de l'arbre de paramètres, dimensions de sortie de Q/K/V, bascule <code>scale_scores</code> et vérification numérique du facteur $\sqrt{d_{QK}}$, masquage des récepteurs fictifs, équivariance par permutation, sûreté <code>vmap</code>+<code>jit</code>, propagation du gradient à travers Q/K/V, sortie nulle sur graphe vide, validation du XOR seed / rngs</td><td>—</td><td>pass (15/15)</td></tr>
+    <tr><td>2 Static</td><td><code>black</code>, <code>flake8</code>, <code>mypy</code></td><td>—</td><td>clean (aucune nouvelle violation)</td></tr>
+    <tr><td>3 LinearSystem</td><td>RecurrentCoupler + MultiHeadQKV, Tiny / Small × 3 seeds, entraînement et évaluation</td><td>LinearSystem</td><td>converge (best-eval Tiny 4.35e-01, Small 3.77e-01)</td></tr>
+    <tr><td>4 Integration</td><td>6 tests dans <code>tests/model/integration/test_coupler.py</code> (un nouveau cas MultiHeadQKV)</td><td>LinearSystem</td><td>pass (6/6)</td></tr>
+    <tr><td>5 IEEE supervised</td><td>Entraînement et évaluation Tiny / Small × 3 seeds</td><td>ieee9, ieee14</td><td>au niveau de LocalSum sur Small (best ieee14 Small 4.635e-03)</td></tr>
+    <tr><td>6 Perf</td><td>Forward et forward+backward médians, 20 warm-up + 100 mesures, JIT</td><td>LinearSystem, ieee118, ieee300</td><td>overhead forward <b>×2.07</b>, stable sur les trois substrats</td></tr>
+    <tr><td>7 Consistency</td><td>Empreinte SHA-256 du forward, re-run check</td><td>ieee14</td><td>bit-identique (préfixe <code>6b976412…</code>)</td></tr>
+  </tbody>
+</table>
+
+<h3>13.2. Formulation Q/K/V et facteur d'échelle $1/\sqrt{d_{QK}}$</h3>
+
+<p>La section 3.3 du backlog pose la formulation single-head suivante&nbsp;:</p>
+
+<p>$$Q_a = Q_\theta(h_a) \in \mathbb{R}^{d_{QK}}, \quad K_{c,e,o} = K_\theta^{c,o}(h_e, x_e), \quad V_{c,e,o} = V_\theta^{c,o}(h_e, x_e)$$</p>
+
+<p>$$\psi_\theta(h, x)_a = \sigma\!\left( \sum_{(c, e, o) \in \mathcal{N}_x(a)} \frac{K_{c, e, o}^\top Q_a}{\sqrt{d_{QK}}} \; V_{c, e, o} \right)$$</p>
+
+<p>La factorisation per-(class, port) sur K et V reprend le pattern de l'Approche 1 (GATv2) et du baseline LocalSum&nbsp;: l'entrée est la concaténation des features de l'hyper-arête (s'il y en a) et des coordonnées rapatriées via le port, K projette dans $\mathbb{R}^{d_{QK}}$ et V dans $\mathbb{R}^{d_V}$. Q est un unique MLP par adresse (entrée $h_a$, sortie $\mathbb{R}^{d_{QK}}$), conforme à la spécification $Q_a = Q_\theta(h_a)$.</p>
+
+<p><b>Motivation du facteur $1/\sqrt{d_{QK}}$.</b> La spécification du backlog utilise $K^\top Q$ brut. L'implémentation s'en écarte pour adopter la convention standard de Vaswani et al. 2017&nbsp;: diviser par $\sqrt{d_{QK}}$ pour maintenir la variance du score à $\mathcal{O}(1)$ lorsque $K$ et $Q$ sont i.i.d. de variance unitaire. Formellement, si $K, Q \sim \mathcal{N}(0, I_{d_{QK}})$, alors $\mathrm{Var}(K^\top Q) = d_{QK}$ (somme de $d_{QK}$ produits i.i.d. $K_i Q_i$ de variance 1). Le score croît donc en $\sqrt{d_{QK}}$ en amplitude, l'activation extérieure (<code>tanh</code>) sature lorsque $d_{QK}$ devient grand, et le gradient s'évanouit.</p>
+
+<p>Ce pattern rejoint celui du dénominateur corrigé de l'Approche 2&nbsp;: une déviation de la spécification littérale, motivée par la stabilité, et adoptée comme résolution proposée. Le flag <code>scale_scores=True</code> est actif par défaut et reste configurable pour les ablations ultérieures (« with vs without scaling »).</p>
+
+<p><b>Multi-tête reporté en v2.</b> La version single-head est livrée en premier ; la version multi-tête se construit par stacking $d_{QK} \to H \times d_{QK}/H$ et bouclage de l'équation de spécification.</p>
+
+<p><b>Implémentation</b>&nbsp;:</p>
+
+<pre><code>q_per_address = self.query_mlp(coordinates)                # (n_addr, d_qk)
+scale = 1.0 / sqrt(d_qk) if scale_scores else 1.0
+
+for (class, port) in graph:
+    masked_input = concat(features, port-gathered coords) * non_fict_mask
+    K = k_mlp(masked_input) * non_fict_mask                # (n_edge, d_qk)
+    V = v_mlp(masked_input) * non_fict_mask                # (n_edge, out_size)
+    Q_at_recv = gather(q_per_address, port_array)          # (n_edge, d_qk)
+    score = sum(K * Q_at_recv, axis=-1, keepdims=True) * scale  # (n_edge, 1)
+    weighted_V = V * score * non_fict_mask                 # (n_edge, out_size)
+    accumulator = scatter_add(accumulator, weighted_V, port_array)
+
+return self.outer_activation(accumulator), {}</code></pre>
+
+<p>Le forward s'effectue en une seule passe, à comparer aux deux passes de GATv2 pour la soustraction du segment-max du softmax. L'équivariance par permutation est conservée, le <code>scatter_add</code> étant commutatif sur l'axe source.</p>
+
+<h3>13.3. Résultats Gate 5 (IEEE supervisé AC LF)</h3>
+
+<p>Le setup reprend exactement celui des Approches 1 et 2&nbsp;: <code>ACLoadFlowProblemLoader</code> avec <code>perturbation_scale=0.1</code>, <code>dataset_size=32</code>, <code>batch_size=4</code>, <code>val_dataset_size=16</code>, seeds <code>[0, 1, 2]</code>, optimiseur <code>optax.adam(1e-3)</code>. Configurations Tiny et Small identiques. Toutes les message functions s'exécutent sur le même pipeline.</p>
+
+<table>
+  <thead>
+    <tr><th>Réseau</th><th>Config</th><th class="num">LocalSum n_params</th><th class="num">MultiHeadQKV n_params</th><th class="num">LocalSum best-eval</th><th class="num">MultiHeadQKV best-eval</th><th class="num">Δ best-eval</th><th class="num">LocalSum train (s)</th><th class="num">MultiHeadQKV train (s)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">1587</td><td class="num">3403</td><td class="num">1.561e-01</td><td class="num">2.043e-01</td><td class="num">+30.9%</td><td class="num">230.3</td><td class="num">286.1</td></tr>
+    <tr><td>ieee9</td><td>Small</td><td class="num">15863</td><td class="num">25407</td><td class="num">5.075e-03</td><td class="num">4.920e-03</td><td class="num">-3.1%</td><td class="num">573.0</td><td class="num">526.7</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">1587</td><td class="num">3403</td><td class="num">8.668e-02</td><td class="num">1.377e-01</td><td class="num">+58.9%</td><td class="num">416.1</td><td class="num">366.8</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">15863</td><td class="num">25407</td><td class="num">4.564e-03</td><td class="num">4.635e-03</td><td class="num">+1.6%</td><td class="num">474.9</td><td class="num">672.0</td></tr>
+  </tbody>
+</table>
+
+<p>Best-eval par seed (MultiHeadQKV)&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Réseau</th><th>Config</th><th class="num">seed 0</th><th class="num">seed 1</th><th class="num">seed 2</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">2.043e-01</td><td class="num">1.329e-01</td><td class="num">2.533e-01</td></tr>
+    <tr><td>ieee9</td><td>Small</td><td class="num">2.456e-03</td><td class="num">8.241e-03</td><td class="num">4.920e-03</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">1.377e-01</td><td class="num">1.143e-01</td><td class="num">1.556e-01</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">4.635e-03</td><td class="num">4.005e-03</td><td class="num">9.770e-03</td></tr>
+  </tbody>
+</table>
+
+<h3>13.4. Comparaison entre approches</h3>
+
+<p>L'Approche 3 fait apparaître un schéma différent des deux précédentes (best-eval MultiHeadQKV à <2 % de LocalSum sur Small contre +75 % pour GATv2 et +300 à 500 % pour GlobalAggregation). Le tableau ci-dessous compare les best-eval médianes sur AC LF Small&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Mécanisme</th><th class="num">n_params (Small)</th><th class="num">ieee9 best-eval</th><th class="num">ieee14 best-eval</th><th class="num">Gate 6 overhead fwd</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>LocalSum (baseline)</td><td class="num">15863</td><td class="num">5.075e-03</td><td class="num">4.564e-03</td><td class="num">×1.00 (ref)</td></tr>
+    <tr><td>GATv2 (Approche 1)</td><td class="num">25289</td><td class="num">5.837e-03</td><td class="num">7.995e-03</td><td class="num">×1.98</td></tr>
+    <tr><td>GlobalAggregation (Approche 2)</td><td class="num">6879</td><td class="num">2.662e-02</td><td class="num">1.846e-02</td><td class="num">×0.09</td></tr>
+    <tr><td><b>MultiHeadQKV (Approche 3)</b></td><td class="num"><b>25407</b></td><td class="num"><b>4.920e-03</b></td><td class="num"><b>4.635e-03</b></td><td class="num"><b>×2.07</b></td></tr>
+  </tbody>
+</table>
+
+<p>Parmi les variantes d'attention testées, MultiHeadQKV est la seule dont la best-eval médiane reste à moins de 2 % de LocalSum sur ieee9 et ieee14 Small. Elle est meilleure que GATv2 de 15 à 42&nbsp;%, et que GlobalAggregation de 75 à 81&nbsp;%. Deux écarts par rapport à GATv2 expliquent ce niveau : projections Q/K/V explicites et facteur d'échelle $1/\sqrt{d_{QK}}$. Détail ci-dessous.</p>
+
+<ul>
+  <li><b>Projections Q/K/V explicites</b> à la place du score MLP scalaire de GATv2. Q et K projettent dans $\mathbb{R}^{d_{QK}}$, V dans $\mathbb{R}^{d_V}$. Le score bilinéaire $K^\top Q$ est l'attention par produit scalaire canonique : il utilise $d_{QK}$ degrés de liberté par paire (Q, K) contre 1 scalaire pour le score MLP de GATv2.</li>
+  <li><b>Mise à l'échelle en $1/\sqrt{d_{QK}}$</b> qui maintient la variance du score à $\mathcal{O}(1)$ sous l'hypothèse $Q, K$ i.i.d. unité, et limite la saturation de l'activation extérieure pour la valeur par défaut $d_{QK} = 8$. Un test unitaire vérifie l'identité $\mathrm{out}_{\text{off}} = \sqrt{d_{QK}} \cdot \mathrm{out}_{\text{on}}$.</li>
+  <li><b>Pas de softmax</b>&nbsp;: l'attention linéaire avec facteur d'échelle suffit à rester compétitive sur des graphes de réseaux électriques (degré typique 2 à 4, l'attention sélective par softmax n'apporte pas d'avantage déterminant). Cela évite à la fois le coût des deux passes et l'évanouissement du gradient lié à la saturation du softmax.</li>
+</ul>
+
+<p><b>Coût</b>&nbsp;: environ 60&nbsp;% de paramètres en plus par rapport à LocalSum (25&nbsp;407 contre 15&nbsp;863) et un forward 2× plus lent (×2,07 stable sur les trois substrats). Le gain de best-eval reste modeste — de l'ordre de 3&nbsp;% sur ieee9 Small pour ce surcoût en paramètres et en compute.</p>
+
+<p><b>Rôle architectural</b>&nbsp;: parmi les Approches 1 à 3, MultiHeadQKV est celle dont la best-eval se rapproche le plus de LocalSum sur ieee9 et ieee14 Small. L'Item 5 (<code>VirtualAddressRecurrentCoupler</code>, chapitre 15) compose plusieurs message functions via un état virtuel partagé et un $\phi$ étendu.</p>
+
+<h3>13.5. Coût et reproductibilité</h3>
+
+<p><b>Gate 6 (perf).</b> Wall-time médian sur forward et forward+backward&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Substrat</th><th class="num">n_addr</th><th class="num">LocalSum fwd (ms)</th><th class="num">MultiHeadQKV fwd (ms)</th><th class="num">LocalSum fwd+bwd (ms)</th><th class="num">MultiHeadQKV fwd+bwd (ms)</th><th class="num">overhead fwd</th><th class="num">overhead fwd+bwd</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>LinearSystem</td><td class="num">4</td><td class="num">1.83</td><td class="num">3.45</td><td class="num">2.08</td><td class="num">4.31</td><td class="num">×1.88</td><td class="num">×2.07</td></tr>
+    <tr><td>ieee118</td><td class="num">118</td><td class="num">9.73</td><td class="num">20.12</td><td class="num">11.83</td><td class="num">25.58</td><td class="num">×2.07</td><td class="num">×2.16</td></tr>
+    <tr><td>ieee300</td><td class="num">300</td><td class="num">9.27</td><td class="num">19.20</td><td class="num">12.56</td><td class="num">25.59</td><td class="num">×2.07</td><td class="num">×2.04</td></tr>
+  </tbody>
+</table>
+
+<p>L'overhead forward de MultiHeadQKV est <b>stable à ×2.07</b> sur les trois substrats, légèrement supérieur à celui de l'Approche 1 (×1,98) en raison d'une projection Q supplémentaire par adresse et de projections K et V par arête (au lieu du couple score + value de GATv2). Le coût est prévisible et indépendant de l'échelle.</p>
+
+<p><b>Gate 7 (consistency).</b> L'empreinte SHA-256 du tenseur de sortie (seed 64, contexte IEEE-14 AC-LF) est enregistrée dans <code>benchmarks/results/03_multi_head_qkv/consistency_multi_head_qkv.json</code>, préfixe <code>6b976412…</code>. Deux re-runs successifs sont bit-identiques. Le préfixe diffère de celui de l'Approche 1 (<code>21647f27…</code>) et de l'Approche 2 (<code>6c2d2c1a…</code>) en raison d'une message function différente. Le même schéma de cache de contexte sérialisé est utilisé pour isoler le non-déterminisme du solveur pypowsybl.</p>
+
+<h3>13.6. Infrastructure et Items 4-5</h3>
+
+<p><b>Arborescence</b>&nbsp;: scripts dans <code>benchmarks/03_multi_head_qkv/</code>, résultats dans <code>benchmarks/results/03_multi_head_qkv/</code>, notebook <code>docs/tutorials/03_multi_head_qkv.ipynb</code> au format deux parties (LinearSystem + IEEE-9/14). Le pattern des Approches 1 et 2 est conservé&nbsp;: six fichiers par approche.</p>
+
+<p>L'infrastructure pre-cache loader établie au chapitre 10.7 reste partagée par les trois approches.</p>
+
+<p>L'Item 4 (<code>PerformerMessagePassingFunction</code>, section 3.4 du backlog) est traité au chapitre 14 (attention linéaire all-to-all sans softmax, single-head v1). L'Item 5 (<code>VirtualAddressRecurrentCoupler</code>, section 3.5) est traité au chapitre 15.</p>
+
+<hr>
+
+<h2 id="sec-approche4">14. Approche 4 — Performer (Item 4 du backlog d'attention)<a href="#sec-approche4" class="anchor">#</a></h2>
+
+<p>L'Item 4 (<code>PerformerMessagePassingFunction</code>) est livré conformément à la spec du backlog section 3.4 (v1 single-head, sans softmax, sans noyau à features aléatoires). La vérification s'exécute sur le serveur GPU de La Javaness (CUDA, JAX 0.9.0). Ce chapitre regroupe le périmètre d'implémentation, la formulation linéaire all-to-all et sa reformulation kernel-trick, les résultats expérimentaux et leur interprétation par rapport à l'Approche 2 (GlobalAggregation).</p>
+
+<h3>14.1. Périmètre d'implémentation et grille de validation</h3>
+
+<p><code>PerformerMessagePassingFunction</code> remplit un stub vide du code source amont, dans <code>src/energnn/model/coupler/message_passing/message_passing_function.py</code>, conformément à la section 3.4 du backlog d'attention. Le périmètre v1 est restreint : une seule tête, pas de softmax, pas de noyau à features aléatoires (Choromanski et al. 2021 reste une extension future). Sept portes de validation sont exécutées séquentiellement :</p>
+
+<table>
+  <thead>
+    <tr><th>Gate</th><th>Contenu</th><th>Substrat</th><th>État</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1 Unit</td><td>15 tests&nbsp;: dimensions Q/K/V, forme de la sortie, parité Form A (somme naïve per-récepteur) vs Form B (kernel-trick utilisé dans l'implémentation), bascule <code>scale_scores</code> + vérification numérique du facteur $\sqrt{d_{QK}}$, masque des adresses fictives, équivariance par permutation, sûreté <code>vmap</code>+<code>jit</code>, flux de gradient à travers Q/K/V, cas de graphe entièrement fictif</td><td>—</td><td>pass (15/15)</td></tr>
+    <tr><td>2 Static</td><td><code>black</code>, <code>flake8</code></td><td>—</td><td>clean (pas de nouvelle violation introduite)</td></tr>
+    <tr><td>3 LinearSystem</td><td>RecurrentCoupler + Performer, Tiny/Small × 3 seeds, train + eval</td><td>LinearSystem</td><td>converge (best-eval Tiny 7.24e-01, Small 4.27e-01)</td></tr>
+    <tr><td>4 Integration</td><td>7 tests dans <code>tests/model/integration/test_coupler.py</code> (un nouveau cas Performer)</td><td>LinearSystem</td><td>pass (7/7)</td></tr>
+    <tr><td>5 IEEE supervisé</td><td>Train + eval Tiny/Small × 3 seeds</td><td>ieee9, ieee14</td><td><b>Performer en retrait de LocalSum 4-5× sur Small</b> (best ieee14 Small 2,26e-02)</td></tr>
+    <tr><td>6 Perf</td><td>Médiane forward / forward+backward, 20 warm-up + 100 mesures, JIT</td><td>LinearSystem, ieee118, ieee300</td><td>forward <b>quasi-constant ≈1,7 ms</b> ; rapport ×0,79 / ×0,21 / ×0,21 vs LocalSum</td></tr>
+    <tr><td>7 Consistency</td><td>SHA-256 du tenseur forward, vérification de re-run</td><td>ieee14</td><td>bit-identique (<code>413b6662…</code>)</td></tr>
+    <tr><td>8 Point figé réseau français</td><td>Point figé du réseau</td><td>—</td><td>différé (snapshot non encore disponible)</td></tr>
+  </tbody>
+</table>
+
+<h3>14.2. Formulation linéaire all-to-all et reformulation kernel-trick</h3>
+
+<p>La section 3.4 du backlog pose la formulation single-head suivante&nbsp;:</p>
+
+<p>$$Q_a = Q_\theta(h_a) \in \mathbb{R}^{d_{QK}}, \quad K_{a'} = K_\theta(h_{a'}) \in \mathbb{R}^{d_{QK}}, \quad V_{a'} = V_\theta(h_{a'}) \in \mathbb{R}^{d_V}$$</p>
+
+<p>$$\psi_\theta(h, x)_a = \sigma\!\left( \frac{1}{\sqrt{d_{QK}}} \sum_{a' \in \mathcal{A}_x^{\mathrm{real}}} (K_{a'}^\top Q_a)\, V_{a'} \right)$$</p>
+
+<p>avec $\mathcal{A}_x^{\mathrm{real}}$ l'ensemble des adresses non fictives (les adresses paddées sont masquées avant la somme) et $\sigma$ une activation appliquée après agrégation. Trois MLP au niveau adresse — $Q_\theta$, $K_\theta$, $V_\theta$ — agissent sur les coordonnées <code>coordinates</code>. La connectivité du graphe (<code>port_dict</code> des hyper-arêtes) n'est <b>pas</b> consultée dans cette couche&nbsp;: l'agrégation parcourt toutes les adresses sans distinction de classe ni de port.</p>
+
+<p><b>Reformulation kernel-trick</b>. La spec donne explicitement la factorisation suivante&nbsp;:</p>
+
+<p>$$\psi_\theta(h, x)_a = \sigma\!\left( \frac{1}{\sqrt{d_{QK}}} \Big(\sum_{a'} V_{a'} K_{a'}^\top\Big) Q_a \right)$$</p>
+
+<p>L'implémentation accumule une seule fois la matrice $M = \sum_{a'} V_{a'} K_{a'}^\top \in \mathbb{R}^{d_V \times d_{QK}}$ puis multiplie par $Q_a$ pour chaque récepteur. Le coût total est $\mathcal{O}(n_{\mathrm{addr}} \cdot d_V \cdot d_{QK})$ au lieu de $\mathcal{O}(n_{\mathrm{addr}}^2 \cdot d_V)$ pour la somme naïve per-récepteur. Avec $d_V, d_{QK}$ petits et fixes, le forward devient quasi-constant en taille de substrat (Gate 6 mesurée à 1,66/1,70 ms sur ieee118/300, cf. 14.5).</p>
+
+<p>L'unit test <code>test_kernel_trick_form_matches_naive_form</code> vérifie que les deux formes produisent une sortie numériquement identique à $10^{-4}$ près sur LinearSystem, ce qui garantit l'absence d'erreur de transposition ou d'einsum dans la factorisation.</p>
+
+<p><b>Facteur d'échelle $1/\sqrt{d_{QK}}$</b>. Le texte du backlog écrit la forme bilinéaire brute $K^\top Q$. L'implémentation suit la convention de Vaswani et al. 2017 et divise le score par $\sqrt{d_{QK}}$ pour maintenir la variance du score en $\mathcal{O}(1)$ lorsque $Q, K$ sont i.i.d. de variance unité. Le flag <code>scale_scores=True</code> par défaut, configurable pour ablation contre la spec littérale du backlog. Même rationale qu'à l'Approche 3 (chapitre 13.2).</p>
+
+<p><b>Pas de softmax, pas de noyau aléatoire</b>. La spec présente la forme sans softmax (ce qui rend la factorisation possible) et sans approximation par features aléatoires. Le nom <code>PerformerMessagePassingFunction</code> est conservé pour respecter le choix du backlog amont, mais l'implémentation correspond plus précisément au "Linear Transformer" de Katharopoulos et al. 2020. L'approximation par features aléatoires (FAVOR+, Choromanski et al. 2021) est différée en extension future.</p>
+
+<p><b>Implémentation</b>&nbsp;:</p>
+
+<pre><code>q = self.query_mlp(coordinates)          # (n_addr, d_qk)
+k = self.key_mlp(coordinates)            # (n_addr, d_qk)
+v = self.value_mlp(coordinates)          # (n_addr, out_size)
+
+mask = jnp.expand_dims(graph.non_fictitious_addresses, -1)
+k_masked = k * mask
+v_masked = v * mask
+
+m = jnp.einsum("ad,af->df", v_masked, k_masked)   # (out_size, d_qk)
+scale = 1.0 / jnp.sqrt(jnp.float32(self.d_qk)) if self.scale_scores else 1.0
+output = jnp.einsum("df,af->ad", m, q) * scale    # (n_addr, out_size)
+
+return self.outer_activation(output), {}</code></pre>
+
+<p>Aucun appel à <code>gather</code> ni <code>scatter_add</code>&nbsp;: le port_dict de la connectivité n'est pas consulté. Les opérations sont deux einsums plus un masquage, indépendantes du nombre d'hyper-arêtes.</p>
+
+<h3>14.3. Résultats Gate 5 (IEEE supervisé AC LF)</h3>
+
+<p>Le setup reprend exactement la Gate 5 des Approches 1-3&nbsp;: <code>ACLoadFlowProblemLoader</code> avec <code>perturbation_scale=0.1</code>, <code>dataset_size=32</code>, <code>batch_size=4</code>, <code>val_dataset_size=16</code>, seeds <code>[0, 1, 2]</code>, optimiseur <code>optax.adam(1e-3)</code>. Configurations Tiny et Small identiques. Les deux message functions s'exécutent sur le même pipeline sur le serveur GPU de La Javaness. Temps total d'entraînement sur les 12 runs&nbsp;: 68 minutes.</p>
+
+<table>
+  <thead>
+    <tr><th>Réseau</th><th>Taille</th><th class="num">LocalSum n_params</th><th class="num">Performer n_params</th><th class="num">LocalSum best-eval</th><th class="num">Performer best-eval</th><th class="num">Δ best-eval</th><th class="num">LocalSum train (s)</th><th class="num">Performer train (s)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">1587</td><td class="num">799</td><td class="num">1,561e-01</td><td class="num">2,039e-01</td><td class="num">+30,6%</td><td class="num">230,3</td><td class="num">183,6</td></tr>
+    <tr><td>ieee9</td><td>Small</td><td class="num">15863</td><td class="num">7439</td><td class="num">5,075e-03</td><td class="num">3,067e-02</td><td class="num">+504,4%</td><td class="num">573,0</td><td class="num">356,4</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">1587</td><td class="num">799</td><td class="num">8,668e-02</td><td class="num">1,221e-01</td><td class="num">+40,9%</td><td class="num">416,1</td><td class="num">303,6</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">15863</td><td class="num">7439</td><td class="num">4,564e-03</td><td class="num">2,264e-02</td><td class="num">+396,1%</td><td class="num">474,9</td><td class="num">453,5</td></tr>
+  </tbody>
+</table>
+
+<p>Performer a environ 47% du nombre de paramètres de LocalSum sur ieee Small (7439 vs 15863) car ses trois MLPs Q/K/V opèrent dans l'espace coordonnée (dimension <code>latent_dim</code>) plutôt que dans l'espace concaténé per-(class, port) de LocalSum. La best-eval est en retrait par rapport à LocalSum&nbsp;: ×4 à ×6 plus élevée sur Small, +30 à +41% sur Tiny. Best-eval par seed (Performer)&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Réseau</th><th>Taille</th><th class="num">seed 0</th><th class="num">seed 1</th><th class="num">seed 2</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">2,039e-01</td><td class="num">1,930e-01</td><td class="num">2,385e-01</td></tr>
+    <tr><td>ieee9</td><td>Small</td><td class="num">3,598e-02</td><td class="num">3,067e-02</td><td class="num">2,881e-02</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">1,221e-01</td><td class="num">1,187e-01</td><td class="num">1,375e-01</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">2,264e-02</td><td class="num">1,903e-02</td><td class="num">2,387e-02</td></tr>
+  </tbody>
+</table>
+
+<h3>14.4. Comparaison entre approches</h3>
+
+<p>L'Approche 4 produit un profil voisin de l'Approche 2 (GlobalAggregation) sur AC LF Small et distinct des Approches 1 (GATv2) et 3 (MultiHeadQKV). Comparaison best-eval médiane sur AC LF Small&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Mécanisme</th><th class="num">n_params (Small)</th><th class="num">ieee9 best-eval</th><th class="num">ieee14 best-eval</th><th class="num">Gate 6 fwd</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>LocalSum (baseline)</td><td class="num">15863</td><td class="num">5,075e-03</td><td class="num">4,564e-03</td><td class="num">×1,00 (réf)</td></tr>
+    <tr><td>GATv2 (Approche 1)</td><td class="num">25289</td><td class="num">5,837e-03</td><td class="num">7,995e-03</td><td class="num">×1,98</td></tr>
+    <tr><td>GlobalAggregation (Approche 2)</td><td class="num">6879</td><td class="num">2,662e-02</td><td class="num">1,846e-02</td><td class="num">×0,09</td></tr>
+    <tr><td>MultiHeadQKV (Approche 3)</td><td class="num">25407</td><td class="num">4,920e-03</td><td class="num">4,635e-03</td><td class="num">×2,07</td></tr>
+    <tr><td><b>Performer (Approche 4)</b></td><td class="num"><b>7439</b></td><td class="num"><b>3,067e-02</b></td><td class="num"><b>2,264e-02</b></td><td class="num"><b>×0,21</b></td></tr>
+  </tbody>
+</table>
+
+<p>Performer rejoint GlobalAggregation dans le groupe «&nbsp;peu de paramètres, forward rapide, eval en retrait sur tâche topologique&nbsp;». Les deux partagent la même propriété architecturale&nbsp;: agrégation globale sur toutes les adresses sans factorisation per-(class, port). Best-eval Performer ieee9 Small (3,07e-02) reste plus élevée que GlobalAggregation (2,66e-02) mais du même ordre. Symétriquement, GATv2 et MultiHeadQKV — qui exploitent la connectivité — restent autour du seuil $5 \times 10^{-3}$ de LocalSum.</p>
+
+<p>Sur le forward, Performer est 5× plus rapide que LocalSum sur ieee118/300 (×0,21), conséquence de la complexité kernel-trick $\mathcal{O}(n_{\mathrm{addr}} \cdot d_V \cdot d_{QK})$ avec $d_V, d_{QK}$ petits et fixes. GlobalAggregation est plus rapide encore (×0,09) avec un coût encore plus simple (un MLP par adresse, puis moyenne). Performer combine donc un forward du même ordre que GlobalAggregation (1,7 ms) avec une best-eval marginalement plus basse (3,07e-02 vs 2,66e-02 sur ieee9 Small) et 8 % de paramètres en plus (7 439 vs 6 879).</p>
+
+<p>Lecture physique : les graphes power-system ont une structure radiale ou maillée (degré 2-4) qui porte un signal exploité par les message functions per-(class, port). Une attention indifférente à cette topologie — Performer comme GlobalAggregation — perd le signal porté par les hyper-arêtes. LocalSum, GATv2 et MultiHeadQKV exploitent ce signal via leurs arbres per-(class, port).</p>
+
+<h3>14.5. Coût (Gate 6) et reproductibilité (Gate 7)</h3>
+
+<p><b>Gate 6 perf.</b> Médiane sur 100 appels après 20 warm-up, identique aux Approches 1-3&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Substrat</th><th class="num">n_addr</th><th class="num">LocalSum fwd (ms)</th><th class="num">Performer fwd (ms)</th><th class="num">LocalSum fwd+bwd (ms)</th><th class="num">Performer fwd+bwd (ms)</th><th class="num">overhead fwd</th><th class="num">overhead fwd+bwd</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>LinearSystem</td><td class="num">4</td><td class="num">2,17</td><td class="num">1,72</td><td class="num">2,03</td><td class="num">1,96</td><td class="num">×0,79</td><td class="num">×0,97</td></tr>
+    <tr><td>ieee118</td><td class="num">118</td><td class="num">7,99</td><td class="num">1,66</td><td class="num">10,45</td><td class="num">1,98</td><td class="num">×0,21</td><td class="num">×0,19</td></tr>
+    <tr><td>ieee300</td><td class="num">300</td><td class="num">8,01</td><td class="num">1,70</td><td class="num">10,31</td><td class="num">2,00</td><td class="num">×0,21</td><td class="num">×0,19</td></tr>
+  </tbody>
+</table>
+
+<p>Le forward Performer est quasi-indépendant de la taille du substrat (~1,7 ms partout, ~2 ms en forward+backward), conséquence directe de la complexité kernel-trick. LocalSum, lui, croît avec le nombre d'hyper-arêtes (coût per-edge MLP dominant), d'où le rapport ×0,21 sur ieee118/300. Sur LinearSystem (<code>n_addr=4</code>), le ratio est proche de 1&nbsp;: trop peu d'hyper-arêtes pour que LocalSum prenne du retard. Le profil est inverse de celui de l'Approche 3 (MultiHeadQKV, ×2,07 partout) car MultiHeadQKV reste per-edge tandis que Performer est all-to-all factorisé.</p>
+
+<p><b>Gate 7 consistency.</b> Empreinte SHA-256 du tenseur de sortie (seed 64, contexte ieee14 AC-LF)&nbsp;:</p>
+
+<pre><code>413b66628748dfed3dbfac926e1b9a8f4656338ec95a07ef562c292cb488355e</code></pre>
+
+<p>Deux exécutions successives sur le serveur GPU de La Javaness reproduisent cette empreinte au bit près. Préfixe différent des Approches précédentes (Approche 1 GATv2 <code>21647f27…</code>, Approche 2 GlobalAggregation <code>6c2d2c1a…</code>, Approche 3 MultiHeadQKV <code>6b976412…</code>) — attendu pour une message function différente. Le contexte ieee14 est sérialisé via pickle une fois puis rechargé pour isoler la reproductibilité Performer du non-déterminisme du solveur pypowsybl. Même schéma de cache que les Approches 1-3.</p>
+
+<h2 id="sec-approche5">15. Approche 5 — VirtualAddressRecurrentCoupler (Item 5 du backlog d'attention)<a href="#sec-approche5" class="anchor">#</a></h2>
+
+<p>L'Item 5 (<code>VirtualAddressRecurrentCoupler</code>) est livré sur la branche feature dédiée <code>virtual-address-coupler</code>, distincte de la branche <code>rte-delivery</code> qui porte les Approches 1 à 4. La séparation reflète la nature structurellement différente de l'item : il s'agit d'un coupler (couche d'orchestration au-dessus des message functions) et non d'une nouvelle message function. La vérification s'exécute sur le serveur GPU de La Javaness (CUDA, JAX 0.9.0). Ce chapitre regroupe le périmètre d'implémentation, le choix de design encodé pour rendre F_virtual exécutable, et les résultats expérimentaux.</p>
+
+<h3>15.1. Périmètre d'implémentation et grille de validation</h3>
+
+<p><code>VirtualAddressRecurrentCoupler</code> remplit un stub partiellement scaffoldé du code source amont, dans <code>src/energnn/model/coupler/message_passing/recurrent_coupler.py</code> (lignes 79 et suivantes, ajoutées par le commit <code>b458a2c</code> de l'amont). Le scaffold contenait deux TODO bloquants à l'exécution : l'injection de <code>h_virtual_address</code> dans les message functions et la définition de <code>F_virtual</code> qui était référencée mais non définie. Les choix retenus sont documentés en section 15.2 et validés par sept portes :</p>
+
+<table>
+  <thead>
+    <tr><th>Gate</th><th>Contenu</th><th>Substrat</th><th>État</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1 Unit</td><td>11 tests dans <code>tests/model/unit/test_virtual_address_recurrent_coupler.py</code> : attributs constructeur, forme et <code>info</code>, finitude, déterminisme par seed, dégénérescence à <code>RecurrentCoupler</code> pour <code>virtual_address_size=0</code>, pas Euler unique, exclusion des adresses fictives de la moyenne du virtual, plusieurs message functions, sûreté <code>vmap</code>+<code>jit</code>, flux de gradient à travers <code>phi_virtual</code>, évolution déterministe de l'état virtuel</td><td>—</td><td>pass (11/11)</td></tr>
+    <tr><td>2 Static</td><td><code>black</code>, <code>flake8</code></td><td>—</td><td>clean (pas de nouvelle violation)</td></tr>
+    <tr><td>3 LinearSystem</td><td>VAR+LocalSum, Tiny/Small × 3 seeds, train + eval</td><td>LinearSystem</td><td>converge (best-eval Tiny 4,45e-01, Small 3,95e-01)</td></tr>
+    <tr><td>4 Integration</td><td>8 tests dans <code>tests/model/integration/test_coupler.py</code> (un nouveau cas <code>VirtualAddressRecurrentCoupler</code>)</td><td>LinearSystem</td><td>pass (8/8)</td></tr>
+    <tr><td>5 IEEE supervisé</td><td>Train + eval Tiny/Small × 3 seeds</td><td>ieee9, ieee14</td><td>VAR+LocalSum reste dans la dispersion inter-seeds de LocalSum sur ieee9 et ieee14 Small (résultat négatif à 3 seeds)</td></tr>
+    <tr><td>6 Perf</td><td>Médiane forward et forward+backward, 20 warm-up + 100 mesures, JIT</td><td>LinearSystem, ieee118, ieee300</td><td>différé — commit de suivi</td></tr>
+    <tr><td>7 Consistency</td><td>SHA-256 du tenseur forward, vérification de re-run</td><td>ieee14</td><td>différé — commit de suivi</td></tr>
+    <tr><td>8 Point figé réseau français</td><td>Point figé du réseau</td><td>—</td><td>différé (snapshot non encore disponible)</td></tr>
+  </tbody>
+</table>
+
+<h3>15.2. Architecture et choix de design</h3>
+
+<p>Le scaffold amont définit la signature suivante (verbatim) : <code>__init__(phi, message_functions, n_steps, virtual_address_size)</code>. Deux TODO bloquent l'exécution&nbsp;: l'injection de <code>h_virtual_address</code> dans les message functions et la définition de <code>F_virtual</code>. Conformément à la convention du backlog section 0 (« nous proposons un ajustement scientifiquement fondé plutôt que de bloquer sur une clarification ; Donon accepte, raffine, ou surcharge la proposition »), les trois questions critiques Q5.1, Q5.2, Q5.3 du backlog reçoivent les réponses suivantes.</p>
+
+<p><b>Q5.1 — Injection (design (c))</b>. <code>h_virtual</code> est concaténé au vecteur de messages avant <code>phi</code>, pas avant les message functions. Aucune modification de l'interface <code>MessagePassingFunction.__call__</code> n'est nécessaire ; les Approches 1 à 4 sont réutilisées sans migration. La signature de <code>phi</code> évolue de <code>in_size = sum(message_out_sizes)</code> à <code>in_size = sum(message_out_sizes) + virtual_address_size</code>.</p>
+
+<p><b>Q5.2 — F_virtual (design (alpha))</b>. <code>F_virtual = phi_virtual(concat(masked_mean(h), h_virtual_old))</code>, où la moyenne est prise sur les adresses non fictives avec le dénominateur corrigé <code>sum(non_fictitious_addresses) + eps</code>, soit le même schéma de masquage que l'Approche 2 (<code>GlobalAggregationMessagePassingFunction</code>). <code>phi_virtual</code> est une MLP supplémentaire, paramètre du constructeur étendu de l'Item 5 (signature étendue par rapport au scaffold pour rendre <code>F_virtual</code> exécutable).</p>
+
+<p><b>Q5.3 — Adresse virtuelle unique (v1)</b>. Un seul vecteur partagé <code>h_virtual ∈ ℝ^{d_v}</code>. L'extension à <code>k</code> adresses virtuelles est reportée en v2 si v1 produit un gain mesurable.</p>
+
+<p>L'équivariance par permutation des adresses est préservée&nbsp;: la moyenne masquée est invariante, le broadcast à toutes les adresses est invariant, le reste du circuit reprend les opérations équivariantes de <code>RecurrentCoupler</code>.</p>
+
+<p><b>Forward Euler joint</b>. Chaque pas met à jour <code>h</code> et <code>h_virtual</code> en parallèle, en utilisant <code>h_old</code> pour le calcul de la moyenne masquée afin d'éviter une dépendance circulaire dans une seule itération&nbsp;:</p>
+
+<pre><code>for _ in range(self.n_steps):
+    h_old = h
+
+    # F: per-address residual update with virtual state injected into phi.
+    messages = [m(graph=graph, coordinates=h)[0] for m in self.message_functions]
+    msg_cat = jnp.concatenate(messages, axis=-1)
+    msg_v_broadcast = jnp.broadcast_to(h_virtual, (n_addr, virtual_address_size))
+    phi_input = jnp.concatenate([msg_cat, msg_v_broadcast], axis=-1)
+    h = h + dt * self.phi(phi_input)
+
+    # F_virtual: virtual state residual update via masked mean of h_old.
+    mask = jnp.expand_dims(graph.non_fictitious_addresses, -1)
+    h_masked = h_old * mask
+    denom = jnp.sum(graph.non_fictitious_addresses) + self.eps
+    h_mean = jnp.sum(h_masked, axis=0) / denom
+    virt_input = jnp.concatenate([h_mean, h_virtual], axis=-1)
+    h_virtual = h_virtual + dt * self.phi_virtual(virt_input)</code></pre>
+
+<p><b>Validation au constructeur</b>. La signature étendue vérifie trois contrats de taille à la construction : <code>phi.in_size == sum(mf.out_size) + virtual_address_size</code>, <code>phi_virtual.in_size == phi.out_size + virtual_address_size</code>, et <code>phi_virtual.out_size == virtual_address_size</code>. Toute violation déclenche un <code>ValueError</code> avant la première forward, ce qui évite des messages d'erreur tardifs et opaques dans le code <code>jit</code>-compilé.</p>
+
+<p><b>Dégénérescence à <code>RecurrentCoupler</code></b>. Avec <code>virtual_address_size = 0</code>, le coupler reproduit exactement la sémantique de <code>RecurrentCoupler</code> (à l'erreur flottante près). Vérifié par le test unitaire <code>test_zero_virtual_size_reproduces_recurrent_coupler</code>.</p>
+
+<h3>15.3. Résultats Gate 3 (LinearSystem)</h3>
+
+<p>Setup identique aux Gate 3 des Approches 1 à 4. La message function enveloppée est <code>LocalSumMessagePassingFunction</code> (référence Donon, Approche 0). <code>virtual_address_size = latent_dim</code> (default OQ4 du design proposal). Temps total d'exécution&nbsp;: 13,9 minutes pour 6 runs sur le serveur GPU de La Javaness.</p>
+
+<table>
+  <thead>
+    <tr><th>Taille</th><th class="num">LocalSum (Approche 0) n_params</th><th class="num">VAR+LocalSum n_params</th><th class="num">LocalSum best-eval</th><th class="num">VAR+LocalSum best-eval</th><th class="num">Δ best-eval</th><th class="num">LocalSum train (s)</th><th class="num">VAR+LocalSum train (s)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Tiny</td><td class="num">185</td><td class="num">237</td><td class="num">4,388e-01</td><td class="num">4,446e-01</td><td class="num">+1,3%</td><td class="num">116,5</td><td class="num">93,2</td></tr>
+    <tr><td>Small</td><td class="num">2177</td><td class="num">2377</td><td class="num">3,877e-01</td><td class="num">3,946e-01</td><td class="num">+1,8%</td><td class="num">227,2</td><td class="num">181,1</td></tr>
+  </tbody>
+</table>
+
+<p>L'écart médian par rapport à <code>LocalSum + RecurrentCoupler</code> reste sous 2 % sur les deux tailles, dans la dispersion à 3 seeds des deux configurations. Le coût ajouté par l'état virtuel sur LinearSystem n'apporte pas de signal mesurable sur ce substrat : LinearSystem a <code>n_addr=4</code> par problème et une topologie réduite, l'apport d'un canal de mémoire global au-dessus d'une agrégation déjà locale est limité.</p>
+
+<p>Détail par seed&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Taille</th><th class="num">seed 0</th><th class="num">seed 1</th><th class="num">seed 2</th><th class="num">train (s) médian</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Tiny</td><td class="num">8,777e-01</td><td class="num">3,823e-01</td><td class="num">4,446e-01</td><td class="num">93,2</td></tr>
+    <tr><td>Small</td><td class="num">4,465e-01</td><td class="num">3,583e-01</td><td class="num">3,994e-01</td><td class="num">181,1</td></tr>
+  </tbody>
+</table>
+
+<h3>15.4. Résultats Gate 5 (IEEE supervisé AC LF)</h3>
+
+<p>Setup identique aux Gate 5 des Approches 1 à 4. La message function enveloppée est <code>LocalSumMessagePassingFunction</code> (Approche 0, référence Donon). <code>virtual_address_size = latent_dim</code>. Temps total d'exécution&nbsp;: 74,9 minutes pour 12 runs sur le serveur GPU de La Javaness.</p>
+
+<table>
+  <thead>
+    <tr><th>Réseau</th><th>Taille</th><th class="num">LocalSum (Approche 0) n_params</th><th class="num">VAR+LocalSum n_params</th><th class="num">LocalSum best-eval</th><th class="num">VAR+LocalSum best-eval</th><th class="num">Δ best-eval</th><th class="num">LocalSum train (s)</th><th class="num">VAR+LocalSum train (s)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Tiny</td><td class="num">1587</td><td class="num">1639</td><td class="num">1,561e-01</td><td class="num">1,476e-01</td><td class="num">-5,4%</td><td class="num">230,3</td><td class="num">248,2</td></tr>
+    <tr><td>ieee9</td><td>Small</td><td class="num">15863</td><td class="num">16063</td><td class="num">5,075e-03</td><td class="num">6,281e-03</td><td class="num">+23,7%</td><td class="num">573,0</td><td class="num">399,9</td></tr>
+    <tr><td>ieee14</td><td>Tiny</td><td class="num">1587</td><td class="num">1639</td><td class="num">8,668e-02</td><td class="num">1,165e-01</td><td class="num">+34,4%</td><td class="num">416,1</td><td class="num">324,8</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">15863</td><td class="num">16063</td><td class="num">4,564e-03</td><td class="num">7,127e-03</td><td class="num">+56,1%</td><td class="num">474,9</td><td class="num">506,1</td></tr>
+  </tbody>
+</table>
+
+<p>La médiane VAR+LocalSum s'éloigne de la référence LocalSum par +23 à +56 % sur trois cellules sur quatre. Avec 3 seeds, l'écart entre les deux mécanismes reste dans la dispersion inter-seeds des best-eval : pas de conclusion d'amélioration ni de dégradation à ce périmètre. Les médianes VAR+LocalSum restent dans la bande d'eval du Groupe A (mécanismes topology-aware), pas dans celle du Groupe B.</p>
+
+<p>Détail par seed sur AC LF Small&nbsp;:</p>
+
+<table>
+  <thead>
+    <tr><th>Réseau</th><th>Taille</th><th class="num">seed 0</th><th class="num">seed 1</th><th class="num">seed 2</th><th class="num">médiane</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ieee9</td><td>Small</td><td class="num">2,682e-03</td><td class="num">8,354e-03</td><td class="num">6,281e-03</td><td class="num">6,281e-03</td></tr>
+    <tr><td>ieee14</td><td>Small</td><td class="num">3,239e-03</td><td class="num">7,127e-03</td><td class="num">1,181e-02</td><td class="num">7,127e-03</td></tr>
+  </tbody>
+</table>
+
+<h3>15.5. Comparaison entre approches</h3>
+
+<table>
+  <thead>
+    <tr><th>Mécanisme</th><th class="num">n_params (Small)</th><th class="num">ieee9 best-eval</th><th class="num">ieee14 best-eval</th><th class="num">Gate 6 fwd</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>LocalSum (référence)</td><td class="num">15863</td><td class="num">5,075e-03</td><td class="num">4,564e-03</td><td class="num">×1,00 (réf)</td></tr>
+    <tr><td>GATv2 (Approche 1)</td><td class="num">25289</td><td class="num">5,837e-03</td><td class="num">7,995e-03</td><td class="num">×1,98</td></tr>
+    <tr><td>GlobalAggregation (Approche 2)</td><td class="num">6879</td><td class="num">2,662e-02</td><td class="num">1,846e-02</td><td class="num">×0,09</td></tr>
+    <tr><td>MultiHeadQKV (Approche 3)</td><td class="num">25407</td><td class="num">4,920e-03</td><td class="num">4,635e-03</td><td class="num">×2,07</td></tr>
+    <tr><td>Performer (Approche 4)</td><td class="num">7439</td><td class="num">2,881e-02</td><td class="num">2,013e-02</td><td class="num">×0,21</td></tr>
+    <tr><td><b>VAR+LocalSum (Approche 5)</b></td><td class="num"><b>16063</b></td><td class="num"><b>6,281e-03</b></td><td class="num"><b>7,127e-03</b></td><td class="num"><i>différée</i></td></tr>
+  </tbody>
+</table>
+
+<p>L'Approche 5 se classe dans la bande du Groupe A (topology-aware) puisque la message function enveloppée est <code>LocalSumMessagePassingFunction</code>. Le mécanisme d'état virtuel n'améliore pas la <em>best-eval</em> par rapport à <code>RecurrentCoupler + LocalSum</code> sur ieee9 et ieee14 Small au seuil de 3 seeds. La séparation Groupe A / Groupe B reste inchangée&nbsp;: les approches topology-aware (LocalSum, GATv2, MultiHeadQKV, VAR+LocalSum) restent dans la bande 5 à 8 × 10⁻³ sur ieee9 Small&nbsp;; les approches topology-agnostic (GlobalAggregation, Performer) restent autour de 2,7 à 2,9 × 10⁻².</p>
+
+<h3>15.6. Implications et limites du périmètre actuel</h3>
+
+<p>L'Approche 5 v1 produit un résultat négatif&nbsp;: le mécanisme d'état virtuel partagé (design (c) injection + design (alpha) F_virtual, vecteur unique), enveloppant la message function LocalSum, n'apporte pas d'amélioration mesurable sur AC LF Small à 3 seeds. Les médianes s'éloignent de la référence par +23 à +56 %, mais l'écart entre les deux mécanismes reste dans la dispersion inter-seeds des best-eval.</p>
+
+<p>La validation Gate 6 (coût) et Gate 7 (consistency) reste à exécuter sur la branche <code>virtual-address-coupler</code> en commit de suivi (cf section 15.1, ligne du tableau «&nbsp;Gate 6&nbsp;» et «&nbsp;Gate 7&nbsp;»). L'estimation de coût forward est environ <code>fwd_LocalSum + fwd_phi_virtual ≈ 8 à 10 ms sur ieee118 et ieee300</code>, le ratio par rapport à LocalSum reste donc sous ×1,3 sur les substrats larges et bien sous le seuil ×3 de la Gate 6.</p>
+
+<p>Limites&nbsp;: la validation est conduite uniquement sur la configuration v1 du coupler avec <code>LocalSumMessagePassingFunction</code> enveloppée, conformément au design proposé en section 15.2. Les Gate 6 (perf) et Gate 7 (consistency) sont différées en commit de suivi sur la branche <code>virtual-address-coupler</code> ; les chiffres sont à reporter ici une fois disponibles. Le périmètre de réseaux est gelé sur ieee9 et ieee14 (Gate 5) et LinearSystem (Gate 3), conformément à la convention <code>feedback_verification_scope</code> partagée avec les Approches 1 à 4.</p>
+
+<p class="small">Les chiffres sont issus des fichiers JSON sous <code>benchmarks/results/05_virtual_address/</code> (<code>baseline_var_linearsystem.json</code> et <code>baseline_var_ac_load_flow.json</code> une fois Gate 5 terminé). Tous les runs ont été exécutés sur le serveur GPU de La Javaness. Le code source vit sur la branche <code>virtual-address-coupler</code> ; la branche <code>rte-delivery</code> reste à l'état actuel (Approches 1 à 4 livrées) jusqu'à validation amont du design de l'Item 5.</p>
+
+<hr>
+
+
+
+<h2 id="sec-conclusion">16. Conclusion et perspectives<a href="#sec-conclusion" class="anchor">#</a></h2>
+
+<p>Le baseline LocalSum sur LinearSystem et IEEE-9/14 sert de référence pour les cinq Approches d'attention livrées. Chaque Approche est validée avec les mêmes seeds, le même optimizer et les mêmes substrats que LocalSum, ce qui rend les comparaisons directes (sans biais d'environnement). L'Approche 5 (VirtualAddressRecurrentCoupler) clôt la livraison des cinq Items du backlog d'attention (cf. chapitre 15).</p>
+
+<h3>16.1. Critères de validation atteints</h3>
+
+<p>Trois portes de validation ont fixé les seuils chiffrés au début du travail attention :</p>
+
+<ul>
+  <li><b>Gate 3 (LinearSystem)</b> : Tiny best-eval $\leq 0,44$, Small $\leq 0,39$ (médiane sur 3 seeds). Approches 1-3 respectent ce seuil. Approche 4 (Performer) dépasse le seuil sur Tiny (7,24e-01) et marginalement sur Small (4,27e-01), conséquence de l'indifférence topologique du mécanisme (chapitre 14.3). Voir chapitres 11-13 et 14 pour les chiffres par approche.</li>
+  <li><b>Gate 5 (IEEE supervisé)</b> : Small best-eval médiane ieee9 $\leq 5,1 \times 10^{-3}$, ieee14 $\leq 4,6 \times 10^{-3}$. GATv2 dépasse légèrement le seuil ($5,8$ et $8,0 \times 10^{-3}$, cf. chapitre 11.3). GlobalAggregation reste au-dessus de ce seuil (cf. chapitre 12.4 pour l'interprétation structurelle). MultiHeadQKV atteint le seuil ($4,9$ et $4,6 \times 10^{-3}$, chapitre 13.3). Performer reste au-dessus du seuil ($3,1 \times 10^{-2}$ et $2,3 \times 10^{-2}$, chapitre 14.3), même profil que GlobalAggregation.</li>
+  <li><b>Gate 6 (perf)</b> : forward+backward overhead vs LocalSum $\leq 3\times$ sur ieee118 et ieee300. Les Approches 1 à 4 sont en dessous : GATv2 et MultiHeadQKV autour de $\times 2$, GlobalAggregation $\times 0{,}09$, Performer $\times 0{,}19$. La Gate 6 de l'Approche 5 n'est pas livrée à ce commit (cf. section 15.6). Voir chapitres 11.5, 12.5, 13.5 et 14.5.</li>
+</ul>
+
+<p>L'expérimentation de conversion IEEE sur les 6 réseaux (chapitre 9) reste valide pour les cinq approches : V_mag dans la plage plausible, sorties finies, topologie préservée.</p>
+
+<h3>16.2. Bilan d'implémentation</h3>
+
+<ol>
+  <li><s>Construire <code>ACLoadFlowProblem</code> autour de la sortie pypowsybl-to-energnn.</s> <b>TERMINÉ</b> — fichier <code>benchmarks/ac_load_flow_problem.py</code>.</li>
+  <li><s>Re-jouer le baseline LocalSum sur IEEE-9 / IEEE-14 supervisé et reporter les chiffres dans <code>BASELINES.md</code>.</s> <b>TERMINÉ</b> — 12 runs sur le serveur GPU de La Javaness, <code>BASELINES.md</code> section 3, résultats au chapitre 10.</li>
+  <li><s>Notebook de référence <code>docs/tutorials/00_baseline_localsum.ipynb</code> (baseline LocalSum).</s> <b>TERMINÉ</b> — démonstrateur exécutable au format deux parties (LinearSystem + IEEE-9/14).</li>
+  <li><s>Approche 1 (GATv2) à travers les portes 1 à 7 + notebook <code>01_gatv2.ipynb</code>.</s> <b>TERMINÉ</b> — chapitre 11.</li>
+  <li><s>Approche 2 (GlobalAggregation) à travers les portes 1 à 7 + notebook <code>02_global_aggregation.ipynb</code>.</s> <b>TERMINÉ</b> — chapitre 12.</li>
+  <li><s>Approche 3 (MultiHeadQKV) à travers les portes 1 à 7 + notebook <code>03_multi_head_qkv.ipynb</code>.</s> <b>TERMINÉ</b> — chapitre 13.</li>
+  <li><s>Approche 4 (Performer) à travers les portes 1 à 7 + notebook <code>04_performer.ipynb</code>.</s> <b>TERMINÉ</b> — chapitre 14.</li>
+  <li><s>Approche 5 (VirtualAddressRecurrentCoupler) à travers les portes 1, 2, 3, 4, 5 ; portes 6 et 7 différées en commit de suivi.</s> <b>TERMINÉ (gates 1-5)</b> — chapitre 15.</li>
+</ol>
+
+</body>
+</html>

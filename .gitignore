@@ -1,0 +1,18 @@
+/.venv
+
+# IntelliJ
+.idea
+*.iml
+
+# VSCode
+.vscode
+
+*__pycache__/
+.coverage
+
+# Doc
+/docs/_build
+/docs/**/_autosummary/
+
+# Jupyter editor cache
+.ipynb_checkpoints/

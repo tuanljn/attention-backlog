@@ -1,0 +1,88 @@
+{
+  "env": {
+    "python": "3.13.13",
+    "platform": "Linux-6.8.0-111-generic-x86_64-with-glibc2.35",
+    "jax": "0.9.0",
+    "jax_devices": [
+      "cuda:0",
+      "cuda:1"
+    ]
+  },
+  "config": {
+    "seed": 64,
+    "in_array_size": 4,
+    "out_size": 4,
+    "hidden_sizes": [
+      4
+    ],
+    "n_warmup": 20,
+    "n_measure": 100,
+    "substrates": [
+      "linear_system",
+      "ieee118",
+      "ieee300"
+    ]
+  },
+  "results": {
+    "linear_system": {
+      "n_addr": 4,
+      "localsum": {
+        "forward_ms_median": 2.0664514740929008,
+        "forward_ms_mean": 2.6251269970089197,
+        "fwd_bwd_ms_median": 2.180772484280169,
+        "fwd_bwd_ms_mean": 2.7413372951559722
+      },
+      "global_aggregation": {
+        "forward_ms_median": 0.808755517937243,
+        "forward_ms_mean": 0.8199692144989967,
+        "fwd_bwd_ms_median": 0.9676190093159676,
+        "fwd_bwd_ms_mean": 0.9854963282123208
+      },
+      "overhead_global_aggregation_over_localsum": {
+        "forward": 0.39137406712744516,
+        "fwd_bwd": 0.4437047038565144
+      },
+      "peak_memory_mb": 2219.0
+    },
+    "ieee118": {
+      "n_addr": 118,
+      "localsum": {
+        "forward_ms_median": 9.56480496097356,
+        "forward_ms_mean": 10.313170510344207,
+        "fwd_bwd_ms_median": 12.20585301052779,
+        "fwd_bwd_ms_mean": 17.0521485991776
+      },
+      "global_aggregation": {
+        "forward_ms_median": 0.8560499409213662,
+        "forward_ms_mean": 0.8735677809454501,
+        "fwd_bwd_ms_median": 1.1554574593901634,
+        "fwd_bwd_ms_mean": 1.2287743436172605
+      },
+      "overhead_global_aggregation_over_localsum": {
+        "forward": 0.08949998922238687,
+        "fwd_bwd": 0.09466421219340905
+      },
+      "peak_memory_mb": 2554.625
+    },
+    "ieee300": {
+      "n_addr": 300,
+      "localsum": {
+        "forward_ms_median": 9.039025520905852,
+        "forward_ms_mean": 9.875042154453695,
+        "fwd_bwd_ms_median": 11.526640388183296,
+        "fwd_bwd_ms_mean": 13.316514198668301
+      },
+      "global_aggregation": {
+        "forward_ms_median": 0.8849183795973659,
+        "forward_ms_mean": 0.9272131463512778,
+        "fwd_bwd_ms_median": 1.057008863426745,
+        "fwd_bwd_ms_mean": 1.3029520912095904
+      },
+      "overhead_global_aggregation_over_localsum": {
+        "forward": 0.09789975452007388,
+        "fwd_bwd": 0.09170138286871109
+      },
+      "peak_memory_mb": 2742.125
+    }
+  }
+}

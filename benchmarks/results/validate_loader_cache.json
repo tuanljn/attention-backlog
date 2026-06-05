@@ -1,0 +1,27 @@
+{
+  "network": "ieee14",
+  "dataset_size": 32,
+  "batch_size": 4,
+  "seed": 0,
+  "perturbation_scale": 0.1,
+  "init_time_s": 6.687880874145776,
+  "epoch_1_time_s": 4.6237354930490255,
+  "epoch_2_time_s": 2.1472368461545557,
+  "epoch1_epoch2_speedup": 2.1533420969976285,
+  "n_batches": 8,
+  "batch_hashes_sha256": [
+    "5dba223bf24f3fa4ca2b508a69c32a262052780416eda5be6fc58cc42b91c2fb",
+    "9060fd050acabe77b29ecbe04ad46a03c46440b97e5ccd633dcd4aacbbb34d4d",
+    "e3c937fb25160484dd317f0a8e49e4c103e3b626bb97479e2f4a48a8213cfa92",
+    "4949f6f044a0aff37fbb08b5366136fe5234cfb9fcb0aac90a2f86cf02f3275c",
+    "257973da32d72c225483b1bd86deb4cf68aff4a26544aff924086d268850c109",
+    "c2d8bc80617552796cee66356002a7e5df945c9d05d275f781ac985e3de06b8d",
+    "3b6a7351a0efb04847cb01f1105f1858bf9ba13151694351fcdd7dd822aa46c8",
+    "ca1eb3fe1b87bdb1b3b3ac1131625f6d45ffd12af6aa51ff6015bb4777998c52"
+  ],
+  "checks_passed": [
+    "re_iteration_stable",
+    "cross_instance_deterministic",
+    "seed_sensitive"
+  ]
+}

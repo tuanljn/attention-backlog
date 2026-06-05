@@ -1,0 +1,80 @@
+=======
+Problem
+=======
+
+In this package, we assume the following initial optimization problem definition,
+
+.. math:: 
+ \underset{y}{\min} \ f (y; x).
+
+This optimization problem is defined by :
+
+- an objective function :math:`f`  **shared across a problem class**;
+- a context :math:`x` **specific to each problem instance**.
+
+Moreover, it is assumed that the gradient :math:`\nabla_y f` is defined.
+
+Every class of problem differs from one another.
+This package provides an interface that should be respected
+for compatibility with our neural network library.
+
+
+
+.. currentmodule:: energnn.problem
+
+
+Problem
+=======
+
+.. autoclass:: Problem
+   :no-members:
+   :show-inheritance:
+   
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+   Problem.__init__
+   Problem.get_context
+   Problem.get_gradient
+   Problem.get_score
+   Problem.decision_structure
+   Problem.context_structure
+
+
+Batch
+=====
+
+.. autoclass:: ProblemBatch
+   :no-members:
+   :show-inheritance:
+
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+   ProblemBatch.__init__
+   ProblemBatch.get_context
+   ProblemBatch.get_gradient
+   ProblemBatch.get_score
+   ProblemBatch.decision_structure
+   ProblemBatch.context_structure
+
+
+Loader
+======
+
+.. autoclass:: ProblemLoader
+   :no-members:
+   :show-inheritance:
+
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+   ProblemLoader.__init__
+   ProblemLoader.__iter__
+   ProblemLoader.__next__
+   ProblemLoader.__len__
+   ProblemLoader.context_structure
+   ProblemLoader.decision_structure

@@ -1,0 +1,87 @@
+{
+  "env": {
+    "python": "3.13.13",
+    "platform": "Linux-6.8.0-111-generic-x86_64-with-glibc2.35",
+    "jax": "0.9.0",
+    "jax_devices": [
+      "cuda:0"
+    ]
+  },
+  "config": {
+    "seed": 64,
+    "in_array_size": 4,
+    "out_size": 4,
+    "hidden_sizes": [
+      4
+    ],
+    "n_warmup": 20,
+    "n_measure": 100,
+    "substrates": [
+      "linear_system",
+      "ieee118",
+      "ieee300"
+    ]
+  },
+  "results": {
+    "linear_system": {
+      "n_addr": 4,
+      "localsum": {
+        "forward_ms_median": 1.8330380553379655,
+        "forward_ms_mean": 2.3276754142716527,
+        "fwd_bwd_ms_median": 2.080161473713815,
+        "fwd_bwd_ms_mean": 2.690683405380696
+      },
+      "multi_head_qkv": {
+        "forward_ms_median": 3.4486589720472693,
+        "forward_ms_mean": 3.6519159842282534,
+        "fwd_bwd_ms_median": 4.313954035751522,
+        "fwd_bwd_ms_mean": 5.3004879131913185
+      },
+      "overhead_multi_head_qkv_over_localsum": {
+        "forward": 1.88138973001923,
+        "fwd_bwd": 2.0738553666459394
+      },
+      "peak_memory_mb": 2108.2109375
+    },
+    "ieee118": {
+      "n_addr": 118,
+      "localsum": {
+        "forward_ms_median": 9.72869445104152,
+        "forward_ms_mean": 11.417897308710963,
+        "fwd_bwd_ms_median": 11.831495095975697,
+        "fwd_bwd_ms_mean": 15.734262152109297
+      },
+      "multi_head_qkv": {
+        "forward_ms_median": 20.11589496396482,
+        "forward_ms_mean": 23.370032333768904,
+        "fwd_bwd_ms_median": 25.582937174476683,
+        "fwd_bwd_ms_mean": 28.282817844301462
+      },
+      "overhead_multi_head_qkv_over_localsum": {
+        "forward": 2.067686991835917,
+        "fwd_bwd": 2.1622742491080715
+      },
+      "peak_memory_mb": 2469.1484375
+    },
+    "ieee300": {
+      "n_addr": 300,
+      "localsum": {
+        "forward_ms_median": 9.27494210191071,
+        "forward_ms_mean": 10.20756833255291,
+        "fwd_bwd_ms_median": 12.558892951346934,
+        "fwd_bwd_ms_mean": 13.664963443297893
+      },
+      "multi_head_qkv": {
+        "forward_ms_median": 19.196632551029325,
+        "forward_ms_mean": 24.156525102443993,
+        "fwd_bwd_ms_median": 25.59251943603158,
+        "fwd_bwd_ms_mean": 26.967845808248967
+      },
+      "overhead_multi_head_qkv_over_localsum": {
+        "forward": 2.0697307153081494,
+        "fwd_bwd": 2.03780058761364
+      },
+      "peak_memory_mb": 2659.7734375
+    }
+  }
+}

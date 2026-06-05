@@ -1,0 +1,60 @@
+{
+  "env": {
+    "python": "3.13.13",
+    "platform": "Linux-6.8.0-117-generic-x86_64-with-glibc2.35",
+    "jax": "0.9.0",
+    "jax_devices": [
+      "cuda:0",
+      "cuda:1"
+    ],
+    "flax": "0.12.3",
+    "optax": "0.2.6"
+  },
+  "config": {
+    "dataset": "LinearSystem",
+    "n_max": 3,
+    "dataset_size": 64,
+    "batch_size": 4,
+    "val_dataset_size": 32,
+    "combos": [
+      "GATv2+GlobalAgg"
+    ],
+    "sizes": [
+      "Tiny"
+    ],
+    "seeds": [
+      0
+    ],
+    "smoke_mode": true
+  },
+  "runs": [
+    {
+      "combo": "GATv2+GlobalAgg",
+      "size": "Tiny",
+      "seed": 0,
+      "n_epochs": 1,
+      "n_params": 268,
+      "eval_before": 0.9919910987373441,
+      "eval_after": 0.9068753988831304,
+      "eval_improvement": 0.08511569985421374,
+      "epoch_eval_curve": [
+        0.9919910987373441,
+        0.9068753988831304
+      ],
+      "median_step_time_ms": 17425.935317995027,
+      "total_train_time_s": 19.351312161015812,
+      "peak_memory_mb": 2488.02734375
+    }
+  ],
+  "summaries": [
+    {
+      "combo": "GATv2+GlobalAgg",
+      "size": "Tiny",
+      "n_seeds": 1,
+      "n_params": 268,
+      "eval_after_median": 0.9068753988831304,
+      "best_eval_median": 0.9068753988831304,
+      "median_step_time_ms": 17425.935317995027
+    }
+  ]
+}

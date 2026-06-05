@@ -1,0 +1,77 @@
+[project]
+name = "energnn"
+version = "0.3.0.dev"
+description = "A Graph Neural Network library for real-life energy networks."
+authors = [
+    { name = "Balthazar DONON", email = "balthazar.donon@rte-france.com" },
+    { name = "Geoffroy JAMGOTCHIAN", email = "geoffroy.jamgotchian@rte-france.com" },
+    { name = "Hugo KULESZA", email = "hugo.kulesza@rte-france.com" },
+    { name = "Steve NOUATIN", email = "steve.nouatin_externe@rte-france.com" }
+]
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "jax>=0.9",
+    "flax>=0.12.0",
+    "optax>=0.2.6",
+    "orbax>=0.1.9",
+    "chex>=0.1.0",
+    "diffrax>=0.7.0",
+    "equinox>=0.13.0",
+    "pandas>=2.2.2",
+    "hydra-core==1.3.2",
+    "tqdm==4.67.0",
+    "cloudpickle<3",
+    "mlflow",
+    "flatdict==4.0.0",
+    "fastdigest==0.8.3",
+    "ipykernel>=7.2.0",
+    "ipywidgets>=8.1.8",
+]
+
+[project.optional-dependencies]
+gpu = ["jax[cuda12]"]
+
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "coverage>=7.11.3",
+    "pytest-cov>=2.19.2",
+    "flake8>=7.0.0",
+    "Flake8-pyproject==1.2.3",
+    "black==24.8.0",
+    "mypy==1.13.0",
+    "pandas-stubs>=2.2.2",
+    "boto3-stubs>=1.28.0",
+    "types-tqdm>=4",
+]
+docs = [
+    "sphinx==8.1.3",
+    "furo==2025.12.19",
+    "sphinx-copybutton",
+    "nbsphinx",
+    "ipykernel",
+    "ipywidgets",
+]
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.black]
+line-length = 127
+
+[tool.flake8]
+max-line-length = 127
+extend-ignore = ["E203", "E701"]
+
+[[tool.mypy.overrides]]
+module = "cloudpickle,optax,flatdict"
+ignore_missing_imports = true
+
+[tool.pytest]
+testpaths = [
+    "tests"
+]

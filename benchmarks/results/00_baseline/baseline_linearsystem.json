@@ -1,0 +1,237 @@
+{
+  "env": {
+    "python": "3.13.13",
+    "platform": "Linux-6.8.0-111-generic-x86_64-with-glibc2.35",
+    "jax": "0.9.0",
+    "jax_devices": [
+      "cuda:0",
+      "cuda:1"
+    ],
+    "flax": "0.12.3",
+    "optax": "0.2.6"
+  },
+  "config": {
+    "n_max": 3,
+    "dataset_size": 64,
+    "batch_size": 4,
+    "val_dataset_size": 32,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "sizes": [
+      {
+        "name": "Tiny",
+        "n_seeds": 3,
+        "n_epochs": 10
+      },
+      {
+        "name": "Small",
+        "n_seeds": 3,
+        "n_epochs": 15
+      }
+    ],
+    "baseline_message_function": "LocalSumMessagePassingFunction",
+    "optimizer": "optax.adam(1e-3)",
+    "status": "complete",
+    "notes": "Baseline scope: Tiny and Small x 3 seeds on the LinearSystem toy (n_max=3). Medium / Large / ExtraLarge are available via LARGER_SIZES in the script and are run on demand against production-realistic graph sizes (Gate 6 perf in attention-backlog.md), not on the toy."
+  },
+  "runs": [
+    {
+      "size": "Tiny",
+      "seed": 0,
+      "n_epochs": 10,
+      "n_params": 185,
+      "eval_before": 1.872010632767342,
+      "eval_after": 0.5532488409662619,
+      "eval_improvement": 1.31876179180108,
+      "epoch_eval_curve": [
+        1.3252876666374505,
+        1.2040436202078126,
+        1.090102522750385,
+        0.9814525382244028,
+        0.8790512310806662,
+        0.7855206367385108,
+        0.7044305800081929,
+        0.63852263174158,
+        0.5886537254191353,
+        0.5532488409662619
+      ],
+      "median_step_time_ms": 226.3968714978546,
+      "p90_step_time_ms": 367.8813938982785,
+      "total_train_time_s": 116.9403650299646,
+      "peak_memory_mb": 2378.76953125,
+      "warning": ""
+    },
+    {
+      "size": "Tiny",
+      "seed": 1,
+      "n_epochs": 10,
+      "n_params": 185,
+      "eval_before": 0.8123994641937315,
+      "eval_after": 0.3939791642333148,
+      "eval_improvement": 0.41842029996041674,
+      "epoch_eval_curve": [
+        0.6424748507561162,
+        0.5948204247688409,
+        0.551833482721122,
+        0.5134051173954504,
+        0.48048344120252295,
+        0.4530280385279184,
+        0.43112594758713385,
+        0.41441175116051454,
+        0.40241601593152154,
+        0.3939791642333148
+      ],
+      "median_step_time_ms": 228.99826208595186,
+      "p90_step_time_ms": 273.30448869615793,
+      "total_train_time_s": 115.63817432103679,
+      "peak_memory_mb": 2410.95703125,
+      "warning": ""
+    },
+    {
+      "size": "Tiny",
+      "seed": 2,
+      "n_epochs": 10,
+      "n_params": 185,
+      "eval_before": 1.199025733396411,
+      "eval_after": 0.43884252697898773,
+      "eval_improvement": 0.7601832064174232,
+      "epoch_eval_curve": [
+        0.8179364057723433,
+        0.7392739620991051,
+        0.6745251966640353,
+        0.6201444726320915,
+        0.5740454473416321,
+        0.5349575656000525,
+        0.5021529088844545,
+        0.4753234319505282,
+        0.45438428936176933,
+        0.43884252697898773
+      ],
+      "median_step_time_ms": 231.2082468997687,
+      "p90_step_time_ms": 300.41155498474836,
+      "total_train_time_s": 116.51147038093768,
+      "peak_memory_mb": 2417.20703125,
+      "warning": ""
+    },
+    {
+      "size": "Small",
+      "seed": 0,
+      "n_epochs": 15,
+      "n_params": 2177,
+      "eval_before": 0.9192481894278899,
+      "eval_after": 0.4556155239697546,
+      "eval_improvement": 0.4636326654581353,
+      "epoch_eval_curve": [
+        0.532643880287651,
+        0.5121810944692697,
+        0.49947299432824366,
+        0.48814099602168426,
+        0.4820763297902886,
+        0.47816015777061693,
+        0.47491095945588313,
+        0.46946634422056377,
+        0.46695484130759723,
+        0.46302756102522835,
+        0.4607528704800643,
+        0.4595151243993314,
+        0.4581156244094018,
+        0.45704985457632574,
+        0.4556155239697546
+      ],
+      "median_step_time_ms": 413.87728694826365,
+      "p90_step_time_ms": 606.2149747041985,
+      "total_train_time_s": 222.4967803878244,
+      "peak_memory_mb": 2549.08203125,
+      "warning": ""
+    },
+    {
+      "size": "Small",
+      "seed": 1,
+      "n_epochs": 15,
+      "n_params": 2177,
+      "eval_before": 0.7493600949528627,
+      "eval_after": 0.3972086609210237,
+      "eval_improvement": 0.352151434031839,
+      "epoch_eval_curve": [
+        0.37744669186986357,
+        0.35962471085076686,
+        0.3555172920314362,
+        0.3538831960686366,
+        0.3543040929835115,
+        0.3543707329135941,
+        0.35338534970105684,
+        0.3541332753588904,
+        0.35638877700193916,
+        0.36278825656609115,
+        0.3697479883385313,
+        0.3791017094445124,
+        0.3816570658782439,
+        0.3887806343846023,
+        0.3972086609210237
+      ],
+      "median_step_time_ms": 574.5039929170161,
+      "p90_step_time_ms": 662.6722872490063,
+      "total_train_time_s": 230.00556306215003,
+      "peak_memory_mb": 2561.58203125,
+      "warning": ""
+    },
+    {
+      "size": "Small",
+      "seed": 2,
+      "n_epochs": 15,
+      "n_params": 2177,
+      "eval_before": 0.9677399134379812,
+      "eval_after": 0.39896772347856313,
+      "eval_improvement": 0.568772189959418,
+      "epoch_eval_curve": [
+        0.4799444037489593,
+        0.4524408998186118,
+        0.4455080106272362,
+        0.44278460233908845,
+        0.43612473867688095,
+        0.42409160526585765,
+        0.41507385960721876,
+        0.40404388404567726,
+        0.3944794338749489,
+        0.3884258941980079,
+        0.3877373222494498,
+        0.3892966160492506,
+        0.390631318296073,
+        0.3949169831466861,
+        0.39896772347856313
+      ],
+      "median_step_time_ms": 574.600693071261,
+      "p90_step_time_ms": 675.108972331509,
+      "total_train_time_s": 227.1571456620004,
+      "peak_memory_mb": 2567.51953125,
+      "warning": ""
+    }
+  ],
+  "summaries": [
+    {
+      "size": "Tiny",
+      "n_seeds": 3,
+      "n_params": 185,
+      "eval_after_min": 0.3939791642333148,
+      "eval_after_median": 0.43884252697898773,
+      "eval_after_max": 0.5532488409662619,
+      "eval_improvement_median": 0.7601832064174232,
+      "median_step_time_ms": 228.99826208595186,
+      "peak_memory_mb_median": 2410.95703125
+    },
+    {
+      "size": "Small",
+      "n_seeds": 3,
+      "n_params": 2177,
+      "eval_after_min": 0.3972086609210237,
+      "eval_after_median": 0.39896772347856313,
+      "eval_after_max": 0.4556155239697546,
+      "eval_improvement_median": 0.4636326654581353,
+      "median_step_time_ms": 574.5039929170161,
+      "peak_memory_mb_median": 2561.58203125
+    }
+  ]
+}
